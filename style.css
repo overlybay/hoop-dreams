@@ -68,10 +68,28 @@ html, body {
 #hud-loc { font-size:8px; letter-spacing:1px; color:#7ab8ff; font-weight:800; margin-top:1px; white-space:nowrap; }
 #cam-hint { text-align:center; margin-top:6px; font-size:11px; letter-spacing:2px; color:#7ab8ff; font-weight:800; }
 
+/* v10 — pre-match lobby bar */
+#prematch { position:fixed; left:0; right:0; bottom:0; z-index:40; display:flex; justify-content:center; padding:0 12px calc(86px + env(safe-area-inset-bottom)); pointer-events:none; }
+.pre-card { pointer-events:auto; text-align:center; background:rgba(5,8,15,.82); border:1px solid #2c3c5c; border-radius:14px; padding:10px 16px; }
+.pre-title { font-size:11px; letter-spacing:2px; color:#ffcf5c; font-weight:800; margin-bottom:8px; }
+.pre-wait { font-size:11px; letter-spacing:2px; color:#7ab8ff; font-weight:800; padding:10px 0 4px; }
+.big-btn:disabled { opacity:.45; }
+
+/* v9 — customize player */
+.cz-label { display:block; text-align:left; font-size:11px; letter-spacing:2px; color:#9fb3d1; font-weight:800; margin:14px 0 8px; }
+.cz-note { color:#5c6b85; font-weight:400; letter-spacing:0; text-transform:none; }
+.swatches { display:flex; gap:10px; flex-wrap:wrap; }
+.swatch { width:44px; height:44px; border-radius:50%; border:3px solid transparent; cursor:pointer; }
+.swatch.on { border-color:#ff7a1a; box-shadow:0 0 12px rgba(255,122,26,.6); }
+#cz-name { width:100%; box-sizing:border-box; }
+
 /* v7 — ready overlay: angle the camera, then tap START */
 #ready-overlay { position:fixed; inset:0; z-index:40; display:flex; align-items:flex-end; justify-content:center; padding-bottom:110px; pointer-events:none; }
 #ready-overlay .ready-card { text-align:center; pointer-events:auto; }
 .ready-title { font-size:13px; letter-spacing:3px; color:#7ab8ff; font-weight:800; margin-bottom:12px; text-shadow:0 2px 8px #000; }
+.drag-modes { display:flex; gap:8px; justify-content:center; margin-bottom:12px; }
+.mode-btn { padding:9px 16px; border-radius:20px; border:1px solid #2c3c5c; background:rgba(10,16,30,.85); color:#9fb3d1; font-size:12px; font-weight:800; letter-spacing:1px; cursor:pointer; }
+.mode-btn.on { background:#ff7a1a; border-color:#ff7a1a; color:#10131a; }
 #hud-code { font-size:10px; color:#5c6b85; letter-spacing:2px; margin-top:1px; }
 #trick-wrap { max-width:230px; margin:6px auto 0; display:flex; align-items:center; gap:8px; }
 #trick-label { font-size:10px; letter-spacing:2px; color:#ff7a1a; font-weight:800; }

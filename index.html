@@ -23,6 +23,7 @@
     <button id="btn-host" class="big-btn">HOST GAME</button>
     <button id="btn-join" class="big-btn alt">JOIN GAME</button>
     <button id="btn-practice" class="big-btn ghost">PRACTICE SOLO</button>
+    <button id="btn-customize" class="big-btn ghost">&#127912; CUSTOMIZE PLAYER</button>
     <p class="hint">Host on one phone, friends join with your 4-letter code.<br>No accounts. No downloads.</p>
     <p class="hint">&#127918; Bluetooth controller supported &mdash; touch controls auto-hide while you play on it.<br><b>ROTATE YOUR PHONE</b> &mdash; Hoop Dreams plays in landscape.</p>
     <details class="photo-settings">
@@ -110,10 +111,42 @@
   </div>
 </div>
 
+<!-- CUSTOMIZE PLAYER (v9) -->
+<div id="customize" class="overlay hidden">
+  <div class="menu-card wide">
+    <h2>CUSTOMIZE PLAYER</h2>
+    <p class="tag">Your look, saved on this phone.</p>
+    <label class="cz-label">NAME</label>
+    <input id="cz-name" maxlength="12" placeholder="BALLER" autocomplete="off">
+    <label class="cz-label">SKIN TONE</label>
+    <div id="cz-skin" class="swatches"></div>
+    <label class="cz-label">JERSEY <span class="cz-note">(solo games — teams set jerseys in group games)</span></label>
+    <div id="cz-jersey" class="swatches"></div>
+    <button id="btn-cz-done" class="big-btn">DONE</button>
+  </div>
+</div>
+
+<!-- PRE-MATCH LOBBY (v10: host shoots around on the court while players join) -->
+<div id="prematch" class="hidden">
+  <div class="pre-card">
+    <div class="pre-title">PRE-MATCH LOBBY &middot; <span id="pre-count">1</span> IN THE GYM</div>
+    <div class="drag-modes">
+      <button id="btn-pdrag-cam" class="mode-btn on">&#127909; CAMERA</button>
+      <button id="btn-pdrag-map" class="mode-btn">&#128506; MAP</button>
+    </div>
+    <button id="btn-pre-start" class="big-btn">START MATCH</button>
+    <div id="pre-wait" class="pre-wait hidden">WAITING FOR HOST TO START&hellip;</div>
+  </div>
+</div>
+
 <!-- READY OVERLAY (v7: no auto-start — angle the camera, then tap) -->
 <div id="ready-overlay" class="hidden">
   <div class="ready-card">
     <div class="ready-title" id="ready-title">DRAG TO ANGLE THE CAMERA</div>
+    <div class="drag-modes">
+      <button id="btn-drag-cam" class="mode-btn on">&#127909; CAMERA</button>
+      <button id="btn-drag-map" class="mode-btn">&#128506; MAP</button>
+    </div>
     <button id="btn-ready-go" class="big-btn">START GAME</button>
   </div>
 </div>
