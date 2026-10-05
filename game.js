@@ -83,6 +83,7 @@ const ui = {
   rotateOverlay: $('rotate-overlay'),
   mlyToken: $('mly-token'), btnMlySave: $('btn-mly-save'), mlyStatus: $('mly-status'),
   photoCredit: $('photo-credit'),
+  camHint: $('cam-hint'),
 };
 function show(el) { el.classList.remove('hidden'); }
 function hide(el) { el.classList.add('hidden'); }
@@ -104,6 +105,7 @@ const G = {
   conns: {},             // host: playerIdx -> PeerJS connection
   inputs: {},            // host: playerIdx -> latest input
   score: [0, 0], tick: 0,
+  camAng: 0, camDist: 1, // v7: player-adjustable pre-game camera angle/zoom
   lastInputSeq: 0,
   snap: null, rpos: {},
   over: false, winner: -1,
@@ -257,11 +259,11 @@ function showMapCredit() {
 }
 function loadSatelliteGround(lat, lng) {
   // Paints a real satellite view of the chosen court onto the ground plane.
-  // Esri World_Imagery tiles are free with no key; 3x3 tiles at z18 ~ 200m across.
+  // Esri World_Imagery tiles are free with no key; 3x3 tiles at z19 ~ 100m across (sharp).
   if (!lat || !lng || !groundMesh) return;
   const key = lat.toFixed(3) + ',' + lng.toFixed(3);
   if (key === satKey && satTex) return; // already showing this spot
-  const z = 18, c = latLngToTile(lat, lng, z), S = 256;
+  const z = 19, c = latLngToTile(lat, lng, z), S = 256;
   const cv = document.createElement('canvas'); cv.width = cv.height = S * 3;
   const ctx = cv.getContext('2d');
   let done = 0, failed = false;
@@ -289,6 +291,62 @@ function loadSatelliteGround(lat, lng) {
     img.onerror = () => { failed = true; };
     img.src = base + z + '/' + (c.y + dy) + '/' + (c.x + dx);
   }
+}
+/* ---- v7: real 3D surroundings — actual OSM building footprints, extruded ---- */
+let bldgGrp = null;
+const bldgMats = [];
+function clearRealBuildings() {
+  if (bldgGrp) { scene.remove(bldgGrp); bldgGrp = null; }
+}
+function loadRealBuildings(lat, lng) {
+  // Replaces the old fake cartoon skyline with REAL buildings around the court,
+  // pulled from OpenStreetMap (free, no key) and extruded to 3D.
+  clearRealBuildings();
+  if (!lat || !lng) return;
+  if (!bldgMats.length) {
+    for (const c of [0x2a3242, 0x232b3a, 0x303a4e, 0x1f2632, 0x36405a])
+      bldgMats.push(new THREE.MeshLambertMaterial({ color: c }));
+  }
+  const R = 250;
+  const q = '[out:json][timeout:25];(way["building"](around:' + R + ',' + lat + ',' + lng + '););out geom;';
+  fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(q))
+    .then(r => { if (!r.ok) throw 0; return r.json(); })
+    .then(j => {
+      const els = (j && j.elements) || [];
+      const grp = new THREE.Group();
+      const cosLat = Math.cos(lat * Math.PI / 180);
+      let n = 0;
+      for (const el of els) {
+        if (n >= 350) break;
+        const geo = el.geometry;
+        if (!geo || geo.length < 4) continue;
+        // local meters relative to court center; north = -z
+        const lp = geo.map(p => [(p.lon - lng) * 111320 * cosLat, -(p.lat - lat) * 110540]);
+        let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
+        for (const p of lp) {
+          if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+          if (p[1] < minZ) minZ = p[1]; if (p[1] > maxZ) maxZ = p[1];
+        }
+        const w = maxX - minX, d = maxZ - minZ;
+        if (w * d < 20) continue;                       // skip tiny sheds
+        if (minX < 14 && maxX > -14 && minZ < 14 && maxZ > -14) continue; // keep the court clear
+        const tags = el.tags || {};
+        let hgt = parseFloat(tags.height) || (parseFloat(tags['building:levels']) || 0) * 3;
+        if (!hgt || hgt <= 0) hgt = 6 + Math.min(24, (w * d) / 120);
+        hgt = Math.min(hgt, 60);
+        try {
+          const sh = new THREE.Shape();
+          sh.moveTo(lp[0][0], -lp[0][1]);
+          for (let i = 1; i < lp.length; i++) sh.lineTo(lp[i][0], -lp[i][1]);
+          const g = new THREE.ExtrudeGeometry(sh, { depth: hgt, bevelEnabled: false });
+          const m = new THREE.Mesh(g, bldgMats[n % bldgMats.length]);
+          m.rotation.x = -Math.PI / 2; // shape (east, north) -> world (east, up, -north)
+          grp.add(m); n++;
+        } catch (_) { /* bad polygon — skip */ }
+      }
+      if (n > 0) { scene.add(grp); bldgGrp = grp; }
+    })
+    .catch(() => { /* no building data — satellite + photos still show */ });
 }
 async function loadLocationBackdrop(lat, lng) {
   // v4: real street-level photo of the chosen court via Mapillary API v4
@@ -374,6 +432,7 @@ function applyLocation(loc) {
   G.loc = loc || FALLBACK_LOC;
   loadLocationBackdrop(G.loc.lat, G.loc.lng).catch(() => {}); // Mapillary photo; falls back silently
   loadSatelliteGround(G.loc.lat, G.loc.lng); // v6: real satellite map under the court
+  loadRealBuildings(G.loc.lat, G.loc.lng); // v7: real 3D buildings around the court
   if (courtMesh) {
     const old = courtMesh.material.map;
     courtMesh.material.map = courtTexture(G.loc.name, G.loc.sub);
@@ -381,7 +440,7 @@ function applyLocation(loc) {
     if (old) old.dispose();
   }
   applyVariant(G.loc.variant || 'night');
-  rebuildSkyline(G.loc);
+  // v7: fake cartoon buildings removed — real satellite map + street photos only
   if (ui.hudLoc) ui.hudLoc.textContent = G.loc.name + (G.loc.sub ? ' — ' + G.loc.sub : '');
 }
 function renderLocPresets() {
@@ -754,23 +813,45 @@ function initThree() {
   const key = new THREE.DirectionalLight(0xfff1d6, 1.7); key.position.set(7, 14, 7); scene.add(key); LT.key = key;
   const fill = new THREE.DirectionalLight(0x8fb4ff, 0.5); fill.position.set(-8, 10, -4); scene.add(fill); LT.fill = fill;
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), new THREE.MeshLambertMaterial({ color: 0x11141a }));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), new THREE.MeshBasicMaterial({ color: 0x11141a }));
   ground.rotation.x = -Math.PI / 2; ground.position.y = -0.02; scene.add(ground);
-  groundMesh = ground; // v6: satellite map texture gets painted here
+  groundMesh = ground; // v6: satellite map texture gets painted here (Basic = full-bright like a map)
   courtMesh = new THREE.Mesh(new THREE.PlaneGeometry(COURT_W, COURT_L), new THREE.MeshLambertMaterial({ map: courtTexture() }));
   courtMesh.rotation.x = -Math.PI / 2; scene.add(courtMesh);
   buildPhotoMesh(); // v4: curved plane for real Mapillary photo backdrops
 
   buildHoop(); buildLights(); buildStars();
-  rebuildSkyline(FALLBACK_LOC);
+  // v7: skyline removed per user request (rebuildSkyline no longer called)
   window.addEventListener('resize', layoutCamera);
 }
 function layoutCamera() {
   const w = innerWidth, h = innerHeight, a = w / h;
   renderer.setSize(w, h); camera.aspect = a; camera.updateProjectionMatrix();
-  const back = a < 0.8 ? 1.55 : a < 1.2 ? 1.32 : 1.12;   // pulled back for up to 10 players
-  camera.position.set(0, 10.4 * back, 12.6 * back);
+  // v7: player-adjustable angle (drag during countdown) + zoom persist here
+  const back = (a < 0.8 ? 1.55 : a < 1.2 ? 1.32 : 1.12) * (G.camDist || 1);
+  const ang = G.camAng || 0;
+  camera.position.set(Math.sin(ang) * 12.6 * back, 10.4 * back, Math.cos(ang) * 12.6 * back);
   camera.lookAt(0, 0.7, -1.8);
+}
+// v7: drag the court view before tip-off to angle it how you want
+let orbT = null;
+function wireCamOrbit() {
+  const el = renderer.domElement;
+  el.addEventListener('pointerdown', e => {
+    if (G.phase !== 'countdown') return;
+    orbT = { x: e.clientX, y: e.clientY };
+  });
+  el.addEventListener('pointermove', e => {
+    if (!orbT || G.phase !== 'countdown') return;
+    const dx = e.clientX - orbT.x, dy = e.clientY - orbT.y;
+    orbT = { x: e.clientX, y: e.clientY };
+    G.camAng = (G.camAng || 0) + dx * 0.008;
+    G.camDist = Math.min(1.7, Math.max(0.65, (G.camDist || 1) + dy * 0.003));
+    layoutCamera();
+  });
+  const end = () => { orbT = null; };
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
 }
 function buildHoop() {
   const grp = new THREE.Group();
@@ -1537,6 +1618,7 @@ function updateHUD() {
   } else if (me) { trick = me.trick; gb = me.gb; pow = me.shootPow; }
   ui.trickFill.style.width = clamp(trick, 0, 100) + '%';
   ui.trickFill.classList.toggle('full', gb);
+  if (ui.camHint) { G.phase === 'countdown' ? show(ui.camHint) : hide(ui.camHint); }
   if (pow >= 0 && G.phase === 'play') {
     show(ui.meter);
     ui.meterFill.style.width = (pow * 100) + '%';
@@ -1664,6 +1746,7 @@ function loop(t) {
 }
 function boot() {
   initThree();
+  wireCamOrbit(); // v7: drag to angle the camera during countdown
   G.ball = newBall(); G.ball.mesh = makeBallMesh();
   G.ball.mesh.visible = false;
   wireMenu();

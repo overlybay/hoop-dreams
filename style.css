@@ -57,16 +57,18 @@ html, body {
 /* HUD */
 #hud { position:fixed; top:0; left:0; right:0; z-index:20; padding:calc(8px + env(safe-area-inset-top)) 12px 0; pointer-events:none; }
 #scoreboard {
-  display:flex; justify-content:space-between; align-items:center; max-width:420px; margin:0 auto;
-  background:rgba(5,8,15,.72); border:1px solid #2c3c5c; border-radius:14px; padding:8px 18px;
+  display:flex; justify-content:space-between; align-items:center; max-width:280px; margin:0 auto;
+  background:rgba(5,8,15,.72); border:1px solid #2c3c5c; border-radius:10px; padding:5px 12px;
 }
-.side { text-align:center; min-width:64px; }
-.lbl { font-size:11px; letter-spacing:2px; color:#9fb3d1; }
-.pts { font-size:34px; font-weight:900; }
+.side { text-align:center; min-width:48px; }
+.lbl { font-size:9px; letter-spacing:2px; color:#9fb3d1; }
+.pts { font-size:24px; font-weight:900; }
 .mid { text-align:center; }
-#target { font-size:10px; letter-spacing:2px; color:#ffcf5c; font-weight:800; }
-#hud-code { font-size:12px; color:#5c6b85; letter-spacing:3px; margin-top:2px; }
-#trick-wrap { max-width:420px; margin:8px auto 0; display:flex; align-items:center; gap:8px; }
+#target { font-size:9px; letter-spacing:2px; color:#ffcf5c; font-weight:800; }
+#hud-loc { font-size:9px; letter-spacing:1px; color:#7ab8ff; font-weight:800; margin-top:1px; white-space:nowrap; }
+#cam-hint { text-align:center; margin-top:6px; font-size:11px; letter-spacing:2px; color:#7ab8ff; font-weight:800; }
+#hud-code { font-size:10px; color:#5c6b85; letter-spacing:2px; margin-top:1px; }
+#trick-wrap { max-width:280px; margin:6px auto 0; display:flex; align-items:center; gap:8px; }
 #trick-label { font-size:10px; letter-spacing:2px; color:#ff7a1a; font-weight:800; }
 #trick-bar { flex:1; height:10px; background:rgba(5,8,15,.72); border:1px solid #2c3c5c; border-radius:6px; overflow:hidden; }
 #trick-fill { height:100%; width:0%; background:linear-gradient(90deg,#ffb02a,#ff5e1a); transition:width .2s; }
@@ -163,8 +165,7 @@ html, body {
 .rotate-text { font-size:30px; font-weight:900; letter-spacing:3px; margin-top:14px; }
 .rotate-sub { color:#9fb3d1; font-size:14px; margin-top:8px; }
 
-/* v4 — HUD location line */
-#hud-loc { font-size:11px; letter-spacing:2px; color:#7ab8ff; font-weight:800; margin-top:2px; white-space:nowrap; }
+/* v4 — HUD location line (compact sizing lives with the scoreboard rules above) */
 
 /* v2 — lobby rosters, names, teams */
 .menu-card.wide { max-width:440px; }
