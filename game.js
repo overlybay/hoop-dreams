@@ -45,6 +45,7 @@ function noiseBurst(dur, freq = 3000, vol = 0.18) {
 const S = {
   bounce: () => beep(120, 55, 0.09, 'sine', 0.10),
   swish: () => noiseBurst(0.28, 2800, 0.22),
+  dunk: () => { beep(150, 85, 0.28, 'sawtooth', 0.2); noiseBurst(0.22, 1400, 0.16); }, // v11: dunk slam
   rim: () => beep(420, 180, 0.14, 'square', 0.08),
   shoot: () => beep(300, 520, 0.09, 'sine', 0.10),
   steal: () => beep(700, 350, 0.08, 'square', 0.10),
@@ -85,10 +86,10 @@ const ui = {
   photoCredit: $('photo-credit'),
   camHint: $('cam-hint'),
   ready: $('ready-overlay'), readyGo: $('btn-ready-go'), readyTitle: $('ready-title'),
-  dragCam: $('btn-drag-cam'), dragMap: $('btn-drag-map'),
+  dragCam: $('btn-drag-cam'), dragSpin: $('btn-drag-spin'), dragMove: $('btn-drag-move'),
   cz: $('customize'), czName: $('cz-name'), czSkin: $('cz-skin'), czJersey: $('cz-jersey'),
   prematch: $('prematch'), preCount: $('pre-count'), preStart: $('btn-pre-start'), preWait: $('pre-wait'),
-  pdragCam: $('btn-pdrag-cam'), pdragMap: $('btn-pdrag-map'),
+  pdragCam: $('btn-pdrag-cam'), pdragSpin: $('btn-pdrag-spin'), pdragMove: $('btn-pdrag-move'),
 };
 function show(el) { el.classList.remove('hidden'); }
 function hide(el) { el.classList.add('hidden'); }
@@ -111,7 +112,8 @@ const G = {
   inputs: {},            // host: playerIdx -> latest input
   score: [0, 0], tick: 0,
   camAng: 0, camDist: 1, // v7: player-adjustable pre-game camera angle/zoom
-  mapRot: 0, dragMode: 'cam', // v9: 'cam' drags gameplay camera, 'map' spins the map itself
+  mapRot: 0, mapX: 0, mapZ: 0, dragMode: 'cam', // v9/v11: 'cam' = gameplay camera, 'spin' = spin map, 'move' = slide map
+  dunkCamT: 0, // v11: camera punch-in timer on dunks
   lastInputSeq: 0,
   snap: null, rpos: {},
   over: false, winner: -1,
@@ -144,7 +146,7 @@ function resetPositions(offenseTeam) {
     else { p.x = ((i - 1) - (off.length - 2) / 2) * 3.4; p.z = 4.4; }
     p.vx = p.vz = 0; p.face = Math.PI; p.hasBall = (i === 0);
     p.shootPow = -1; p.autoRel = 0; p.postStr = false; p.stepCd = 0;
-    p.jumpT = -1; p.stumble = 0; p.dashT = 0; p.y = 0;
+    p.jumpT = -1; p.stumble = 0; p.dashT = 0; p.y = 0; p.dunkTry = false; p.dunkGlide = false; // v11
   });
   def.forEach((p, i) => {
     p.x = (i - (def.length - 1) / 2) * 3.2; p.z = 0.4;
@@ -348,6 +350,7 @@ function loadRealBuildings(lat, lng) {
           const g = new THREE.ExtrudeGeometry(sh, { depth: hgt, bevelEnabled: false });
           const m = new THREE.Mesh(g, bldgMats[n % bldgMats.length]);
           m.rotation.x = -Math.PI / 2; // shape (east, north) -> world (east, up, -north)
+          m.castShadow = true; m.receiveShadow = true; // v11
           grp.add(m); n++;
         } catch (_) { /* bad polygon — skip */ }
       }
@@ -395,6 +398,8 @@ function seededRand(seed) {
 function applyVariant(v) {
   // night | dusk | day — recolor sky, fog, lights, stars
   if (v === 'day') {
+    setSky('#2f6fd0', '#8fc3e8', '#d8ecf7');
+    if (FL.lampMat) { FL.lampMat.color.set(0x8a8a80); FL.coneMat.opacity = 0.015; } // v13: floodlights dim at day
     scene.background.set(0x8fc3e8); scene.fog.color.set(0x8fc3e8); scene.fog.near = 40; scene.fog.far = 120;
     if (starsPts) starsPts.visible = false;
     if (moonMesh) moonMesh.visible = false;
@@ -402,6 +407,8 @@ function applyVariant(v) {
     if (LT.amb) LT.amb.intensity = 0.5;
     if (LT.key) { LT.key.intensity = 2.0; LT.key.color.set(0xfff6e0); }
   } else if (v === 'dusk') {
+    setSky('#160f2e', '#7a2d50', '#ff9a5c');
+    if (FL.lampMat) { FL.lampMat.color.set(0xffeebb); FL.coneMat.opacity = 0.05; }
     scene.background.set(0x2a1430); scene.fog.color.set(0x2a1430); scene.fog.near = 34; scene.fog.far = 95;
     if (starsPts) starsPts.visible = false;
     if (moonMesh) moonMesh.visible = false;
@@ -409,6 +416,8 @@ function applyVariant(v) {
     if (LT.amb) LT.amb.intensity = 0.3;
     if (LT.key) { LT.key.intensity = 1.9; LT.key.color.set(0xff9a5c); }
   } else {
+    setSky('#01030a', '#0a1226', '#233a5e');
+    if (FL.lampMat) { FL.lampMat.color.set(0xfff6d8); FL.coneMat.opacity = 0.075; } // v13: full night glow
     scene.background.set(0x05070d); scene.fog.color.set(0x05070d); scene.fog.near = 34; scene.fog.far = 95;
     if (starsPts) starsPts.visible = true;
     if (moonMesh) moonMesh.visible = true;
@@ -647,7 +656,7 @@ function showPrematch() {
   G.paused = false;
   G.phase = 'prematch'; G.overShown = false;
   G.dragMode = 'cam';
-  ui.pdragCam.classList.add('on'); ui.pdragMap.classList.remove('on');
+  ui.pdragCam.classList.add('on'); ui.pdragSpin.classList.remove('on'); ui.pdragMove.classList.remove('on');
   if (G.mode === 'guest') { hide(ui.preStart); show(ui.preWait); }
   else { show(ui.preStart); hide(ui.preWait); updatePreStart(); }
   ui.preCount.textContent = activeCount();
@@ -678,8 +687,8 @@ function showReady() {
     show(ui.readyGo);
   }
   G.dragMode = 'cam'; // v9: reset to camera-drag each game
-  ui.dragCam.classList.add('on'); ui.dragMap.classList.remove('on');
-  show(ui.dragCam); show(ui.dragMap);
+  ui.dragCam.classList.add('on'); ui.dragSpin.classList.remove('on'); ui.dragMove.classList.remove('on');
+  show(ui.dragCam); show(ui.dragSpin); show(ui.dragMove);
   show(ui.ready);
   if (G.mode === 'host' && !bcTimer) bcTimer = setInterval(hostBroadcast, 50);
   checkOrientation();
@@ -797,6 +806,7 @@ function stopInputLoop() { if (inputTimer) clearInterval(inputTimer); inputTimer
 /* ================= THREE.JS SCENE ================= */
 let renderer, scene, camera;
 let courtMesh = null, skylineGrp = null, starsPts = null, moonMesh = null, groundMesh = null, worldGrp = null;
+let rimMesh = null, rimShake = 0; // v11: dunk rim rattle
 const LT = {}; // light refs for location variants (v4)
 const PX = x => (x + COURT_W / 2) / COURT_W * 1024;
 const PZ = z => (z + COURT_L / 2) / COURT_L * 960;
@@ -856,21 +866,121 @@ function blobTexture() {
   return new THREE.CanvasTexture(cv);
 }
 
+/* v11: gradient sky dome — much richer than a flat background color */
+let skyDome = null;
+function skyTexture(top, mid, bot) {
+  const cv = document.createElement('canvas'); cv.width = 4; cv.height = 256;
+  const g = cv.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 0, 256);
+  gr.addColorStop(0, top); gr.addColorStop(0.55, mid); gr.addColorStop(0.82, bot); gr.addColorStop(1, bot);
+  g.fillStyle = gr; g.fillRect(0, 0, 4, 256);
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function buildSkyDome() {
+  skyDome = new THREE.Mesh(
+    new THREE.SphereGeometry(400, 24, 16),
+    new THREE.MeshBasicMaterial({ side: THREE.BackSide, fog: false, depthWrite: false }));
+  skyDome.renderOrder = -10;
+  scene.add(skyDome);
+}
+function setSky(top, mid, bot) {
+  if (!skyDome) return;
+  const old = skyDome.material.map;
+  skyDome.material.map = skyTexture(top, mid, bot);
+  skyDome.material.needsUpdate = true;
+  if (old) old.dispose();
+}
+/* v13: 2K-style park environment — floodlight towers with light cones */
+const FL = { lampMat: null, coneMat: null };
+function buildFloodlights() {
+  const grp = new THREE.Group();
+  const poleMat = new THREE.MeshLambertMaterial({ color: 0x1a2028 });
+  FL.lampMat = new THREE.MeshBasicMaterial({ color: 0xfff6d8 });
+  FL.coneMat = new THREE.MeshBasicMaterial({ color: 0xfff2c0, transparent: true, opacity: 0.06, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
+  const corners = [[-11.5, -10.5], [11.5, -10.5], [-11.5, 10.5], [11.5, 10.5]];
+  for (const [x, z] of corners) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.17, 9.4, 8), poleMat);
+    pole.position.set(x, 4.7, z); pole.castShadow = true; grp.add(pole);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.75, 0.32), poleMat);
+    head.position.set(x, 9.5, z); head.lookAt(0, 1, 0); grp.add(head);
+    for (let i = -1; i <= 1; i += 2) for (let j = -1; j <= 1; j += 2) {
+      const lamp = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), FL.lampMat);
+      lamp.position.set(x + i * 0.34, 9.5 + j * 0.19, z);
+      lamp.lookAt(0, 1.5, 0); grp.add(lamp);
+    }
+    // volumetric-feel light cone angling down toward the court
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(5, 9.5, 18, 1, true), FL.coneMat);
+    const apex = new THREE.Vector3(x, 9.4, z), tgt = new THREE.Vector3(x * 0.25, 0, z * 0.25);
+    const dir = tgt.clone().sub(apex).normalize();
+    cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir);
+    cone.position.copy(apex).addScaledVector(dir, 4.75);
+    grp.add(cone);
+  }
+  scene.add(grp);
+}
+/* v13: chain-link fence around the blacktop */
+let _fenceTex = null;
+function fenceTexture() {
+  if (_fenceTex) return _fenceTex;
+  const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+  const g = cv.getContext('2d');
+  g.clearRect(0, 0, 64, 64);
+  g.strokeStyle = 'rgba(190,200,212,.85)'; g.lineWidth = 2;
+  for (let i = -64; i <= 128; i += 10) {
+    g.beginPath(); g.moveTo(i, 0); g.lineTo(i + 64, 64); g.stroke();
+    g.beginPath(); g.moveTo(i + 64, 0); g.lineTo(i, 64); g.stroke();
+  }
+  _fenceTex = new THREE.CanvasTexture(cv);
+  _fenceTex.wrapS = _fenceTex.wrapT = THREE.RepeatWrapping;
+  return _fenceTex;
+}
+function buildFence() {
+  const grp = new THREE.Group();
+  const tex = fenceTexture();
+  const mkSide = (w, x, z, ry) => {
+    const t = tex.clone(); t.needsUpdate = true; t.repeat.set(w / 1.2, 1);
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, 1.15),
+      new THREE.MeshBasicMaterial({ map: t, transparent: true, side: THREE.DoubleSide }));
+    m.position.set(x, 0.58, z); m.rotation.y = ry; grp.add(m);
+  };
+  const hw = COURT_W / 2 + 1.6, hl = COURT_L / 2 + 1.6;
+  mkSide(hw * 2, 0, -hl, 0); mkSide(hw * 2, 0, hl, 0);
+  mkSide(hl * 2, -hw, 0, Math.PI / 2); mkSide(hl * 2, hw, 0, Math.PI / 2);
+  const postMat = new THREE.MeshLambertMaterial({ color: 0x232a35 });
+  for (let x = -hw; x <= hw + 0.1; x += 3) for (const z of [-hl, hl]) {
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.25, 6), postMat);
+    p.position.set(x, 0.62, z); grp.add(p);
+  }
+  for (let z = -hl; z <= hl + 0.1; z += 3) for (const x of [-hw, hw]) {
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.25, 6), postMat);
+    p.position.set(x, 0.62, z); grp.add(p);
+  }
+  scene.add(grp);
+}
 function initThree() {
   const canvas = $('c');
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  renderer.shadowMap.enabled = true; // v11: real-time shadows
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x05070d);
   scene.fog = new THREE.Fog(0x05070d, 34, 95);
-  camera = new THREE.PerspectiveCamera(55, 1, 0.1, 220);
+  camera = new THREE.PerspectiveCamera(55, 1, 0.1, 600);
   layoutCamera();
+  buildSkyDome(); // v11: gradient sky instead of flat color
 
   scene.add(new THREE.HemisphereLight(0x9db8ff, 0x201812, 0.95));
   LT.hemi = scene.children[scene.children.length - 1];
   scene.add(new THREE.AmbientLight(0xffffff, 0.25));
   LT.amb = scene.children[scene.children.length - 1];
   const key = new THREE.DirectionalLight(0xfff1d6, 1.7); key.position.set(7, 14, 7); scene.add(key); LT.key = key;
+  key.castShadow = true; // v11
+  key.shadow.mapSize.set(1024, 1024);
+  key.shadow.camera.left = -25; key.shadow.camera.right = 25;
+  key.shadow.camera.top = 25; key.shadow.camera.bottom = -25;
+  key.shadow.camera.far = 60; key.shadow.bias = -0.002;
   const fill = new THREE.DirectionalLight(0x8fb4ff, 0.5); fill.position.set(-8, 10, -4); scene.add(fill); LT.fill = fill;
 
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), new THREE.MeshBasicMaterial({ color: 0x11141a }));
@@ -879,10 +989,11 @@ function initThree() {
   worldGrp.add(ground);
   groundMesh = ground; // v6: satellite map texture gets painted here (Basic = full-bright like a map)
   courtMesh = new THREE.Mesh(new THREE.PlaneGeometry(COURT_W, COURT_L), new THREE.MeshLambertMaterial({ map: courtTexture() }));
-  courtMesh.rotation.x = -Math.PI / 2; scene.add(courtMesh);
+  courtMesh.rotation.x = -Math.PI / 2; courtMesh.receiveShadow = true; scene.add(courtMesh); // v11: receives shadows
   buildPhotoMesh(); // v4: curved plane for real Mapillary photo backdrops
 
   buildHoop(); buildLights(); buildStars();
+  buildFloodlights(); buildFence(); // v13: 2K park atmosphere
   // v7: skyline removed per user request (rebuildSkyline no longer called)
   window.addEventListener('resize', layoutCamera);
 }
@@ -902,6 +1013,7 @@ function updateCameraFollow(snap) {
     const p = G.players[b.holder];
     if (p) { tx = p.x * 0.3; tz = -1.8 + (p.z + 1.8) * 0.2; }
   }
+  if (G.dunkCamT > 0) pull *= 0.88; // v11: punch in on dunks
   const k = snap ? 1 : 0.08;
   camLook.x += (tx - camLook.x) * k;
   camLook.y += (ty - camLook.y) * k;
@@ -912,9 +1024,15 @@ function updateCameraFollow(snap) {
   camera.position.set(Math.sin(ang) * 12.6 * back, 10.4 * back, Math.cos(ang) * 12.6 * back);
   camera.lookAt(camLook.x, camLook.y, camLook.z);
 }
+// v11: apply the host's map spin + slide to the world group
+function applyMapTransform() {
+  if (!worldGrp) return;
+  worldGrp.rotation.y = G.mapRot || 0;
+  worldGrp.position.set(G.mapX || 0, 0, G.mapZ || 0);
+}
+const ORBIT_PHASES = { ready: 1, countdown: 1, prematch: 1 };
 // v7: drag the court view before tip-off to angle it how you want
 let orbT = null;
-const ORBIT_PHASES = { ready: 1, countdown: 1, prematch: 1 };
 function wireCamOrbit() {
   const el = renderer.domElement;
   el.addEventListener('pointerdown', e => {
@@ -925,10 +1043,15 @@ function wireCamOrbit() {
     if (!orbT || !ORBIT_PHASES[G.phase]) return;
     const dx = e.clientX - orbT.x, dy = e.clientY - orbT.y;
     orbT = { x: e.clientX, y: e.clientY };
-    if (G.dragMode === 'map') {
+    if (G.dragMode === 'spin') {
       // v9: spin the map (satellite + real buildings + street photo) itself
       G.mapRot = (G.mapRot || 0) + dx * 0.008;
-      if (worldGrp) worldGrp.rotation.y = G.mapRot;
+      applyMapTransform();
+    } else if (G.dragMode === 'move') {
+      // v11: slide the map down the street
+      G.mapX = clamp((G.mapX || 0) + dx * 0.12, -120, 120);
+      G.mapZ = clamp((G.mapZ || 0) + dy * 0.12, -120, 120);
+      applyMapTransform();
     } else {
       G.camAng = (G.camAng || 0) + dx * 0.008;
       G.camDist = Math.min(1.7, Math.max(0.65, (G.camDist || 1) + dy * 0.003));
@@ -943,7 +1066,10 @@ function buildHoop() {
   const grp = new THREE.Group();
   const dark = new THREE.MeshLambertMaterial({ color: 0x2a2f38 });
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 4.2, 10), dark);
-  pole.position.set(0, 2.1, HZ - 1.05); grp.add(pole);
+  pole.position.set(0, 2.1, HZ - 1.05); pole.castShadow = true; grp.add(pole);
+  const pad = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.7, 0.34), // v13: stanchion pad
+    new THREE.MeshLambertMaterial({ color: 0xd23b3b }));
+  pad.position.set(0, 1.15, HZ - 1.05); pad.castShadow = true; grp.add(pad);
   const arm = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 1.0), dark);
   arm.position.set(0, 3.85, HZ - 0.55); grp.add(arm);
   const bb = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.05, 0.06),
@@ -952,6 +1078,7 @@ function buildHoop() {
   const rim = new THREE.Mesh(new THREE.TorusGeometry(0.2286, 0.028, 10, 24),
     new THREE.MeshLambertMaterial({ color: 0xe8641c, emissive: 0x552200 }));
   rim.rotation.x = Math.PI / 2; rim.position.set(HX, RIM_Y, HZ); grp.add(rim);
+  rimMesh = rim; // v11: rim rattle on dunks
   const pts = [];
   for (let i = 0; i < 10; i++) {
     const a = i / 10 * Math.PI * 2;
@@ -968,6 +1095,7 @@ function buildHoop() {
   }
   grp.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts),
     new THREE.LineBasicMaterial({ color: 0xf2f2f2, transparent: true, opacity: 0.9 })));
+  grp.traverse(o => { if (o.isMesh) o.castShadow = true; }); // v11
   scene.add(grp);
 }
 function buildLights() {
@@ -1098,7 +1226,10 @@ function makePlayerMesh(color, skinColor, num) {
   for (const sx of [-1, 1]) {
     const pivot = new THREE.Group(); pivot.position.set(sx * 0.38, 1.62, 0);
     const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.08, 0.6, 8), skin);
-    arm.position.y = -0.3; pivot.add(arm); pivot.rotation.z = sx * 0.14; grp.add(pivot); arms.push(pivot);
+    arm.position.y = -0.3; pivot.add(arm);
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 8), skin); // v11: hands
+    hand.position.y = -0.62; pivot.add(hand);
+    pivot.rotation.z = sx * 0.14; grp.add(pivot); arms.push(pivot);
   }
   // head + hair
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.185, 14, 12), skin);
@@ -1110,6 +1241,7 @@ function makePlayerMesh(color, skinColor, num) {
   const sh = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5),
     new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }));
   sh.rotation.x = -Math.PI / 2; sh.position.y = 0.015; grp.add(sh);
+  grp.traverse(o => { if (o.isMesh && o !== sh) o.castShadow = true; }); // v11: real shadows
   scene.add(grp);
   return { grp, armL: arms[0], armR: arms[1], shadow: sh };
 }
@@ -1142,6 +1274,7 @@ function buildPlayers() {
 function makeBallMesh() {
   const m = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 14),
     new THREE.MeshLambertMaterial({ map: ballTexture(), emissive: 0x3a1500, emissiveIntensity: 0.35 }));
+  m.castShadow = true; // v11
   scene.add(m); return m;
 }
 function syncMesh(p) {
@@ -1457,20 +1590,29 @@ function updateJump(p, dt) {
   if (p.jumpT < 0) return;
   p.jumpT += dt;
   const k = p.jumpT / p.jumpDur;
+  if (p.dunkGlide) {
+    // v11: dunk flight — glide toward the rim while rising
+    const gk = Math.min(1, p.jumpT / p.dunkDur);
+    p.x = lerp(p.dunkFx, HX, gk); p.z = lerp(p.dunkFz, HZ + 0.35, gk);
+    p.face = Math.atan2(HX - p.x, HZ - p.z);
+    if (k >= 1) p.dunkGlide = false;
+  }
   if (k >= 1) { p.jumpT = -1; p.y = 0; }
   else p.y = p.jumpH * 4 * k * (1 - k);
 }
 function releaseShot(p, idx) {
   const d = dist2d(p.x, p.z, HX, HZ);
-  const dunk = d < 2.6;
-  let makeP = dunk ? 0.90 : d < 4 ? 0.70 : d < THREE_PT ? 0.55 : 0.42;
+  // v11: driving dunk — sprinting or flying at the rim inside ~3m throws it down
+  const dunk = d < 3.2 && !!p.dunkTry;
+  p.dunkTry = false;
+  let makeP = dunk ? 0.92 : d < 4 ? 0.70 : d < THREE_PT ? 0.55 : 0.42;
   const pw = p.shootPow;
   if (pw >= 0.65 && pw <= 0.90) { makeP += 0.22; S.green(); if (idx === G.myIdx) showBanner('GREEN!', '', 650); }
   else if (pw < 0.35) makeP -= 0.30;
   else if (pw > 0.97) makeP -= 0.18;
   const o = nearestOpp(p, idx, 2.4);
   if (o) {
-    if (o.jumpT >= 0) makeP -= 0.22;
+    if (o.jumpT >= 0) makeP -= dunk ? 0.25 : 0.22; // v11: contesting a dunk is harder
     else if (dist2d(o.x, o.z, p.x, p.z) < 1.5) makeP -= 0.08;
   }
   let gbUsed = false;
@@ -1479,14 +1621,27 @@ function releaseShot(p, idx) {
   const make = Math.random() < makeP;
   const pts = d > THREE_PT ? 3 : 2;
   p.hasBall = false; p.shootPow = -1; p.armUp = 1;
-  p.jumpT = 0; p.jumpDur = dunk ? 0.55 : 0.45; p.jumpH = dunk ? 1.55 : 0.9;
+  p.jumpT = 0; p.jumpDur = dunk ? 0.55 : 0.45; p.jumpH = dunk ? 1.7 : 0.9;
   const b = G.ball;
   b.state = 'fly'; b.holder = -1; b.passTo = -1;
-  b.fx = p.x + Math.sin(p.face) * 0.4; b.fy = 2.0 + (dunk ? 1.0 : 0); b.fz = p.z + Math.cos(p.face) * 0.4;
-  b.flyT = 0; b.flyDur = dunk ? 0.38 : 0.55;
-  if (make) { b.tx = HX; b.ty = RIM_Y; b.tz = HZ; }
-  else { const a = Math.random() * Math.PI * 2, r = rand(0.34, 0.58); b.tx = HX + Math.cos(a) * r; b.ty = RIM_Y + rand(-0.04, 0.14); b.tz = HZ + Math.sin(a) * r; }
-  b.willScore = make; b.pts = pts; b.gbShot = gbUsed; b.shooterIdx = idx;
+  if (dunk) {
+    // v11: slam it — player glides to the rim, ball punched down through it
+    p.dunkGlide = true; p.dunkDur = 0.42; p.dunkFx = p.x; p.dunkFz = p.z;
+    b.fx = HX; b.fy = RIM_Y + 1.0; b.fz = HZ;
+    b.tx = HX; b.ty = RIM_Y - 0.4; b.tz = HZ;
+    b.flyT = 0; b.flyDur = 0.3;
+    b.willScore = make;
+    G.dunkCamT = 0.6; rimShake = 0.7; // camera punch-in + rim rattle
+    S.dunk();
+    showBanner('DUNK!', '', 800);
+  } else {
+    b.fx = p.x + Math.sin(p.face) * 0.4; b.fy = 2.0; b.fz = p.z + Math.cos(p.face) * 0.4;
+    b.flyT = 0; b.flyDur = 0.55;
+    if (make) { b.tx = HX; b.ty = RIM_Y; b.tz = HZ; }
+    else { const a = Math.random() * Math.PI * 2, r = rand(0.34, 0.58); b.tx = HX + Math.cos(a) * r; b.ty = RIM_Y + rand(-0.04, 0.14); b.tz = HZ + Math.sin(a) * r; }
+    b.willScore = make;
+  }
+  b.pts = pts; b.gbShot = gbUsed; b.shooterIdx = idx;
   S.shoot();
 }
 function tryDribble(p, idx, inp) {
@@ -1690,9 +1845,13 @@ function simTick(dt) {
       if (p.autoRel > 0) { p.autoRel -= dt; if (p.autoRel <= 0) releaseShot(p, i); } // v4: stepback auto-release
       else if (!inp.shootHeld) releaseShot(p, i);
     } else if (inp.shootHeld && p.hasBall && p.dashT <= 0 && p.stumble <= 0) {
-      p.shootPow = 0; S.shoot();
+      p.shootPow = 0;
+      // v11: driving dunk attempt — sprinting or blowing by at the rim
+      const dd = dist2d(p.x, p.z, HX, HZ);
+      p.dunkTry = dd < 3.0 && ((inp.sprint || inp.stickSprint) || Math.hypot(p.vx, p.vz) > 3.5);
+      S.shoot();
     } else if (inp.quickShot && p.hasBall && p.dashT <= 0 && p.stumble <= 0) {
-      p.shootPow = 0; p.autoRel = 0.6; S.shoot(); // v4: pro-stick flick-up jumper
+      p.shootPow = 0; p.autoRel = 0.6; p.dunkTry = false; S.shoot(); // v4: pro-stick flick-up jumper (never a dunk)
     }
     if (inp.dribble) tryDribble(p, i, inp);
     if (inp.stepback) tryStepback(p, i);
@@ -1763,6 +1922,13 @@ function updateVisuals(dt) {
   }
   const gl = G.gbFlash > 0 ? (0.5 + Math.sin(performance.now() / 55) * 0.5) : 0;
   b.mesh.material.emissive.setRGB(0.23 + gl * 0.55, 0.08 + gl * 0.3, gl * 0.05);
+  if (rimShake > 0 && rimMesh) { // v11: rim rattle after a dunk
+    rimShake -= dt;
+    const rs = Math.max(0, rimShake);
+    rimMesh.position.x = HX + Math.sin(performance.now() / 28) * 0.035 * rs;
+    rimMesh.position.z = HZ + Math.cos(performance.now() / 24) * 0.035 * rs;
+    if (rimShake <= 0) { rimMesh.position.x = HX; rimMesh.position.z = HZ; }
+  }
 }
 function updateButtons() {
   const show = (id, on) => { $(id).style.display = on ? 'flex' : 'none'; };
@@ -1876,19 +2042,20 @@ function wireMenu() {
   $('btn-cancel-join').onclick = () => { hide(ui.joinui); show(ui.menu); };
   $('btn-start').onclick = () => { audio(); hostStart(); };
   ui.readyGo.onclick = () => { audio(); startCountdown(); }; // v7: player taps when ready
-  const setDragMode = m => { // v9: separate camera-drag vs map-drag
+  const setDragMode = m => { // v9/v11: camera vs spin-map vs slide-map
     audio(); G.dragMode = m;
-    ui.dragCam.classList.toggle('on', m === 'cam');
-    ui.dragMap.classList.toggle('on', m === 'map');
-    ui.pdragCam.classList.toggle('on', m === 'cam');
-    ui.pdragMap.classList.toggle('on', m === 'map');
-    const label = m === 'map' ? 'DRAG TO SPIN THE MAP' : 'DRAG TO ANGLE THE CAMERA';
-    ui.readyTitle.textContent = label;
+    for (const [el, on] of [[ui.dragCam, 'cam'], [ui.dragSpin, 'spin'], [ui.dragMove, 'move'],
+                            [ui.pdragCam, 'cam'], [ui.pdragSpin, 'spin'], [ui.pdragMove, 'move']])
+      el.classList.toggle('on', m === on);
+    ui.readyTitle.textContent = m === 'spin' ? 'DRAG TO SPIN THE MAP'
+      : m === 'move' ? 'DRAG TO SLIDE THE MAP' : 'DRAG TO ANGLE THE CAMERA';
   };
   ui.dragCam.onclick = () => setDragMode('cam');
-  ui.dragMap.onclick = () => setDragMode('map');
+  ui.dragSpin.onclick = () => setDragMode('spin');
+  ui.dragMove.onclick = () => setDragMode('move');
   ui.pdragCam.onclick = () => setDragMode('cam');
-  ui.pdragMap.onclick = () => setDragMode('map');
+  ui.pdragSpin.onclick = () => setDragMode('spin');
+  ui.pdragMove.onclick = () => setDragMode('move');
   ui.preStart.onclick = () => { // v10: host starts the match when players have joined
     if (G.mode !== 'host' || activeCount() < 2) return;
     audio(); startCountdown();
@@ -1959,6 +2126,7 @@ function loop(t) {
   } else if (G.mode === 'guest') guestTick(dt);
   updateVisuals(dt); updateHUD();
   updateCameraFollow(false); // v7: keep the basket in frame while shooting
+  if (G.dunkCamT > 0) G.dunkCamT -= dt; // v11: dunk camera punch decay
   if (G.gbFlash > 0) G.gbFlash = Math.max(0, G.gbFlash - dt * 1.4);
   renderer.render(scene, camera);
 }
