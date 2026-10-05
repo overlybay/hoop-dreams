@@ -156,11 +156,48 @@ function resetMatch() {
 
 /* ================= LOCATIONS (v4 — choose your court) ================= */
 const LOC_PRESETS = [
+  // National legends
   { name: 'RUCKER PARK', sub: 'HARLEM, NYC', lat: 40.8292, lng: -73.9365, variant: 'dusk' },
   { name: 'VENICE BEACH', sub: 'LOS ANGELES, CA', lat: 33.9850, lng: -118.4695, variant: 'day' },
   { name: 'DYCKMAN PARK', sub: 'WASHINGTON HTS, NYC', lat: 40.8662, lng: -73.9272, variant: 'night' },
   { name: 'THE CAGE', sub: 'WEST 4TH ST, NYC', lat: 40.7312, lng: -74.0006, variant: 'dusk' },
   { name: 'DREW LEAGUE', sub: 'LOS ANGELES, CA', lat: 33.9425, lng: -118.2437, variant: 'night' },
+  { name: 'BARRY FARMS', sub: 'WASHINGTON, DC', lat: 38.8598, lng: -76.9970, variant: 'dusk' },
+  { name: 'FONDE REC', sub: 'HOUSTON, TX', lat: 29.7686, lng: -95.3689, variant: 'night' },
+  { name: 'MOSSWOOD PARK', sub: 'OAKLAND, CA', lat: 37.8240, lng: -122.2605, variant: 'day' },
+  { name: 'JACKSON PARK', sub: 'CHICAGO, IL', lat: 41.7747, lng: -87.5804, variant: 'dusk' },
+  { name: 'SMITH PLAYGROUND', sub: 'PHILADELPHIA, PA', lat: 39.9254, lng: -75.1873, variant: 'night' },
+  { name: 'MADISON SQUARE', sub: 'BALTIMORE, MD', lat: 39.3024, lng: -76.5986, variant: 'dusk' },
+  { name: 'DRUID HILL PARK', sub: 'BALTIMORE, MD', lat: 39.3235, lng: -76.6445, variant: 'day' },
+  { name: 'FLAMINGO PARK', sub: 'MIAMI, FL', lat: 25.7847, lng: -80.1375, variant: 'day' },
+  { name: 'JUDKINS PARK', sub: 'SEATTLE, WA', lat: 47.5903, lng: -122.3038, variant: 'night' },
+  { name: 'ORANGE MOUND', sub: 'MEMPHIS, TN', lat: 35.1070, lng: -89.9721, variant: 'dusk' },
+  // Georgia — Atlanta + 200-mile radius
+  { name: 'PIEDMONT PARK', sub: 'ATLANTA, GA', lat: 33.7890, lng: -84.3719, variant: 'day' },
+  { name: 'GRANT PARK', sub: 'ATLANTA, GA', lat: 33.7359, lng: -84.3709, variant: 'dusk' },
+  { name: 'WASHINGTON PARK', sub: 'ATLANTA, GA', lat: 33.7576, lng: -84.4230, variant: 'night' },
+  { name: 'BESSIE BRANHAM PARK', sub: 'ATLANTA, GA', lat: 33.7543, lng: -84.3208, variant: 'day' },
+  { name: 'CENTRAL PARK', sub: 'ATLANTA, GA', lat: 33.7683, lng: -84.3764, variant: 'dusk' },
+  { name: 'SOUTHSIDE PARK', sub: 'ATLANTA, GA', lat: 33.6621, lng: -84.3694, variant: 'night' },
+  { name: 'PERKERSON PARK', sub: 'ATLANTA, GA', lat: 33.7112, lng: -84.4127, variant: 'day' },
+  { name: 'CHASTAIN PARK', sub: 'ATLANTA, GA', lat: 33.8712, lng: -84.3910, variant: 'day' },
+  { name: 'MARIETTA', sub: 'GEORGIA', lat: 33.9528, lng: -84.5496, variant: 'dusk' },
+  { name: 'DECATUR', sub: 'GEORGIA', lat: 33.7748, lng: -84.2963, variant: 'day' },
+  { name: 'COLLEGE PARK', sub: 'GEORGIA', lat: 33.6534, lng: -84.4494, variant: 'night' },
+  { name: 'EAST POINT', sub: 'GEORGIA', lat: 33.6796, lng: -84.4394, variant: 'dusk' },
+  { name: 'SANDY SPRINGS', sub: 'GEORGIA', lat: 33.9243, lng: -84.3785, variant: 'day' },
+  { name: 'MACON', sub: 'GEORGIA', lat: 32.8407, lng: -83.6324, variant: 'dusk' },
+  { name: 'ATHENS', sub: 'GEORGIA', lat: 33.9598, lng: -83.3764, variant: 'night' },
+  { name: 'AUGUSTA', sub: 'GEORGIA', lat: 33.4710, lng: -81.9748, variant: 'day' },
+  { name: 'COLUMBUS', sub: 'GEORGIA', lat: 32.4611, lng: -84.9880, variant: 'dusk' },
+  { name: 'SAVANNAH', sub: 'GEORGIA', lat: 32.0790, lng: -81.0921, variant: 'night' },
+  { name: 'ALBANY', sub: 'GEORGIA', lat: 31.5782, lng: -84.1557, variant: 'day' },
+  { name: 'VALDOSTA', sub: 'GEORGIA', lat: 30.8327, lng: -83.2785, variant: 'dusk' },
+  { name: 'CHATTANOOGA', sub: 'TENNESSEE', lat: 35.0457, lng: -85.3095, variant: 'night' },
+  { name: 'GREENVILLE', sub: 'SOUTH CAROLINA', lat: 34.8514, lng: -82.3985, variant: 'day' },
+  { name: 'BIRMINGHAM', sub: 'ALABAMA', lat: 33.5207, lng: -86.8024, variant: 'dusk' },
+  { name: 'MONTGOMERY', sub: 'ALABAMA', lat: 32.3777, lng: -86.3091, variant: 'night' },
+  { name: 'COLUMBIA', sub: 'SOUTH CAROLINA', lat: 34.0008, lng: -81.0352, variant: 'day' },
   { name: 'RANDOM BLACKTOP', sub: 'SOMEWHERE, USA', lat: 0, lng: 0, variant: 'night' },
 ];
 const FALLBACK_LOC = { name: 'STREETBALL', sub: 'USA', lat: 0, lng: 0, variant: 'night' };
@@ -218,7 +255,7 @@ async function loadLocationBackdrop(lat, lng) {
     let pick = mlyPhotoCache[key];
     if (!pick) {
       const url = 'https://graph.mapillary.com/images?access_token=' + encodeURIComponent(tok)
-        + '&lat=' + lat + '&lng=' + lng + '&radius=50&limit=10'
+        + '&lat=' + lat + '&lng=' + lng + '&radius=500&limit=20'
         + '&fields=id,computed_geometry,thumb_2048_url,captured_at,compass_angle';
       const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
       if (!r.ok) return false;

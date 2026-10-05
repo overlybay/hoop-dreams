@@ -143,7 +143,7 @@ html, body {
   background:#141d31; border:1px solid #2c3c5c; border-radius:10px; cursor:pointer;
 }
 .loc-res:active { background:#1d2a45; }
-#loc-presets { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:4px 0; }
+#loc-presets { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:4px 0; max-height:300px; overflow-y:auto; padding-right:2px; }
 .loc-preset {
   padding:12px 8px; border-radius:12px; border:1px solid #2c3c5c; cursor:pointer;
   background:linear-gradient(180deg,#1a2438,#101828); color:#fff;
