@@ -24,7 +24,16 @@
     <button id="btn-join" class="big-btn alt">JOIN GAME</button>
     <button id="btn-practice" class="big-btn ghost">PRACTICE SOLO</button>
     <p class="hint">Host on one phone, friends join with your 4-letter code.<br>No accounts. No downloads.</p>
-    <p class="hint">&#127918; Bluetooth controller supported &mdash; left stick moves (full tilt = sprint) &middot; X shoot &middot; A pass &middot; B dribble &middot; RB steal &middot; Y block. Touch controls auto-hide while you play on the controller.</p>
+    <p class="hint">&#127918; Bluetooth controller supported &mdash; touch controls auto-hide while you play on it.<br><b>ROTATE YOUR PHONE</b> &mdash; Hoop Dreams plays in landscape.</p>
+    <details class="photo-settings">
+      <summary>&#128247; REAL PHOTO COURTS (FREE)</summary>
+      <p class="hint">Paste a free Mapillary token to play on real street photos of each court. Get one free &mdash; no card &mdash; at mapillary.com &rarr; dashboard &rarr; developers.</p>
+      <div class="linkrow">
+        <input id="mly-token" maxlength="80" placeholder="Mapillary access token" autocomplete="off" spellcheck="false">
+        <button id="btn-mly-save" class="small-btn">SAVE</button>
+      </div>
+      <p id="mly-status" class="status"></p>
+    </details>
   </div>
 </div>
 
@@ -88,11 +97,33 @@
   </div>
 </div>
 
+<!-- LOCATION PICKER -->
+<div id="locate" class="overlay hidden">
+  <div class="menu-card wide">
+    <h2>CHOOSE YOUR COURT</h2>
+    <p class="tag">Where y'all playing?</p>
+    <input id="loc-search" maxlength="60" placeholder="Search a place&hellip; (e.g. Chicago)" autocomplete="off">
+    <div id="loc-results"></div>
+    <div id="loc-presets"></div>
+    <p id="loc-status" class="status"></p>
+    <button id="btn-loc-back" class="big-btn ghost">BACK</button>
+  </div>
+</div>
+
+<!-- ROTATE OVERLAY -->
+<div id="rotate-overlay" class="hidden">
+  <div class="rotate-card">
+    <div class="rotate-icon">&#128241;</div>
+    <div class="rotate-text">ROTATE YOUR PHONE</div>
+    <div class="rotate-sub">Hoop Dreams plays in landscape</div>
+  </div>
+</div>
+
 <!-- HUD -->
 <div id="hud" class="hidden">
   <div id="scoreboard">
     <div class="side" id="side-home"><div class="lbl">HOME</div><div id="score-home" class="pts">0</div></div>
-    <div class="mid"><div id="target">FIRST TO 21</div><div id="hud-code">----</div></div>
+    <div class="mid"><div id="target">FIRST TO 21</div><div id="hud-loc">STREETBALL</div><div id="hud-code">----</div></div>
     <div class="side" id="side-away"><div class="lbl">AWAY</div><div id="score-away" class="pts">0</div></div>
   </div>
   <div id="trick-wrap"><div id="trick-label">TRICK</div><div id="trick-bar"><div id="trick-fill"></div></div></div>
@@ -101,6 +132,7 @@
     <button id="btn-mute" class="icon-btn">&#9836;</button>
     <button id="btn-quit" class="icon-btn">&#10005;</button>
   </div>
+  <div id="photo-credit" class="hidden">Imagery &copy; Mapillary contributors</div>
 </div>
 
 <!-- SHOT METER -->
@@ -115,18 +147,16 @@
 <!-- TOUCH CONTROLS -->
 <div id="controls" class="hidden">
   <div id="joy-zone"><div id="joy-base"><div id="joy-knob"></div></div></div>
+  <div id="pro-zone"><div id="pro-base"><div id="pro-knob"></div></div></div>
   <div id="btns">
-    <button id="b-shoot" class="ctl big">SHOOT</button>
     <button id="b-pass" class="ctl small">PASS</button>
-    <button id="b-dribble" class="ctl small">DRIBBLE</button>
     <button id="b-cut" class="ctl small">CUT</button>
-    <button id="b-steal" class="ctl small">STEAL</button>
-    <button id="b-block" class="ctl small">BLOCK</button>
     <button id="b-switch" class="ctl small">SWITCH</button>
     <button id="b-sprint" class="ctl small">SPRINT</button>
   </div>
   <button id="pad-icon" style="display:none">&#127918;</button>
 </div>
+<div id="pro-hint" class="hidden">RIGHT STICK = PRO STICK &mdash; flick for dribble moves &middot; push up &amp; release to shoot</div>
 
 <!-- GAME OVER -->
 <div id="gameover" class="overlay hidden">

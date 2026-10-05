@@ -75,7 +75,14 @@ const ui = {
   goTitle: $('go-title'), goScore: $('go-score'),
   btnRematch: $('btn-rematch'), goWait: $('go-wait'),
   joyBase: $('joy-base'), joyKnob: $('joy-knob'),
+  proBase: $('pro-base'), proKnob: $('pro-knob'), proHint: $('pro-hint'),
   padPill: $('pad-pill'),
+  hudLoc: $('hud-loc'),
+  locate: $('locate'), locSearch: $('loc-search'), locResults: $('loc-results'),
+  locPresets: $('loc-presets'), locStatus: $('loc-status'),
+  rotateOverlay: $('rotate-overlay'),
+  mlyToken: $('mly-token'), btnMlySave: $('btn-mly-save'), mlyStatus: $('mly-status'),
+  photoCredit: $('photo-credit'),
 };
 function show(el) { el.classList.remove('hidden'); }
 function hide(el) { el.classList.add('hidden'); }
@@ -103,16 +110,17 @@ const G = {
   gbFlash: 0, offenseTeam: 0,
   overShown: false, paused: false,
 };
-const NULL_INP = { mx: 0, mz: 0, sprint: false, stickSprint: false, shootHeld: false, dribble: 0, steal: 0, pass: 0, block: 0, sw: 0, cut: 0 };
+const NULL_INP = { mx: 0, mz: 0, sprint: false, stickSprint: false, shootHeld: false, dribble: 0, steal: 0, pass: 0, block: 0, sw: 0, cut: 0, postup: false, stepback: 0, quickShot: 0, proDir: 0, pdx: 0, pdz: 0 };
 function newPlayer(name, team) {
   return {
     name: String(name || 'BALLER').slice(0, 12), team, color: TEAM_COLORS[team],
     x: 0, z: 0, vx: 0, vz: 0, face: Math.PI, y: 0,
     hasBall: false,
-    stealCd: 0, crossCd: 0, passCd: 0, blockCd: 0, swCd: 0, cutCd: 0,
+    stealCd: 0, crossCd: 0, passCd: 0, blockCd: 0, swCd: 0, cutCd: 0, stepCd: 0,
     stumble: 0,
     jumpT: -1, jumpDur: 0.55, jumpH: 1.1,
-    shootPow: -1, armUp: 0, dashT: 0, dashDx: 0, dashDz: 0,
+    shootPow: -1, autoRel: 0, postStr: false,
+    armUp: 0, dashT: 0, dashDx: 0, dashDz: 0,
     trick: 0, gb: false, moving: false, active: true,
     mesh: null, runPh: Math.random() * 6,
   };
@@ -127,12 +135,14 @@ function resetPositions(offenseTeam) {
     if (i === 0) { p.x = 0; p.z = 2.5; }
     else { p.x = ((i - 1) - (off.length - 2) / 2) * 3.4; p.z = 4.4; }
     p.vx = p.vz = 0; p.face = Math.PI; p.hasBall = (i === 0);
-    p.shootPow = -1; p.jumpT = -1; p.stumble = 0; p.dashT = 0; p.y = 0;
+    p.shootPow = -1; p.autoRel = 0; p.postStr = false; p.stepCd = 0;
+    p.jumpT = -1; p.stumble = 0; p.dashT = 0; p.y = 0;
   });
   def.forEach((p, i) => {
     p.x = (i - (def.length - 1) / 2) * 3.2; p.z = 0.4;
     p.vx = p.vz = 0; p.face = 0; p.hasBall = false;
-    p.shootPow = -1; p.jumpT = -1; p.stumble = 0; p.dashT = 0; p.y = 0;
+    p.shootPow = -1; p.autoRel = 0; p.postStr = false; p.stepCd = 0;
+    p.jumpT = -1; p.stumble = 0; p.dashT = 0; p.y = 0;
   });
   const b = G.ball, bh = off[0];
   b.state = 'held'; b.holder = G.players.indexOf(bh); b.vx = b.vy = b.vz = 0;
@@ -141,6 +151,209 @@ function resetMatch() {
   G.score = [0, 0]; G.tick = 0; G.over = false; G.winner = -1; G.freezeT = 0; G.offenseTeam = 0;
   for (const p of G.players) { p.trick = 0; p.gb = false; p.stealCd = p.crossCd = p.passCd = p.blockCd = p.swCd = p.cutCd = 0; }
   if (G.players.length) resetPositions(0);
+}
+
+/* ================= LOCATIONS (v4 — choose your court) ================= */
+const LOC_PRESETS = [
+  { name: 'RUCKER PARK', sub: 'HARLEM, NYC', lat: 40.8292, lng: -73.9365, variant: 'dusk' },
+  { name: 'VENICE BEACH', sub: 'LOS ANGELES, CA', lat: 33.9850, lng: -118.4695, variant: 'day' },
+  { name: 'DYCKMAN PARK', sub: 'WASHINGTON HTS, NYC', lat: 40.8662, lng: -73.9272, variant: 'night' },
+  { name: 'THE CAGE', sub: 'WEST 4TH ST, NYC', lat: 40.7312, lng: -74.0006, variant: 'dusk' },
+  { name: 'DREW LEAGUE', sub: 'LOS ANGELES, CA', lat: 33.9425, lng: -118.2437, variant: 'night' },
+  { name: 'RANDOM BLACKTOP', sub: 'SOMEWHERE, USA', lat: 0, lng: 0, variant: 'night' },
+];
+const FALLBACK_LOC = { name: 'STREETBALL', sub: 'USA', lat: 0, lng: 0, variant: 'night' };
+
+// Real photo backdrops via Mapillary (free, no card — crowdsourced street-level
+// photos, CC BY-SA). The user pastes a free token from mapillary.com into the
+// in-game settings (saved to localStorage) — no rebuild needed. Empty token =
+// stylized skyline backdrop (game keeps working normally).
+const MAPILLARY_TOKEN_BUILTIN = 'MLY|28893815526901836|f5d781284fe936d37bf1209a7136af74';
+function mlyToken() {
+  try { return (localStorage.getItem('hd_mly_token') || '').trim() || MAPILLARY_TOKEN_BUILTIN; }
+  catch (_) { return MAPILLARY_TOKEN_BUILTIN; }
+}
+const mlyPhotoCache = {}; // "lat,lng" -> { url, capturedAt } (in-memory, per session)
+let photoMesh = null;
+function buildPhotoMesh() {
+  // Large curved plane behind the far end of the court; the Mapillary photo
+  // is painted on it. Camera sits at +z looking toward -z, so the arc is
+  // centered on -z and we view its inner face (BackSide).
+  const geo = new THREE.CylinderGeometry(42, 42, 20, 48, 1, true, Math.PI - 1.25, 2.5);
+  const mat = new THREE.MeshBasicMaterial({ side: THREE.BackSide, fog: false });
+  photoMesh = new THREE.Mesh(geo, mat);
+  photoMesh.position.y = 8.5;
+  photoMesh.visible = false;
+  scene.add(photoMesh);
+}
+function hidePhotoBackdrop() {
+  if (photoMesh) photoMesh.visible = false;
+  if (ui.photoCredit) ui.photoCredit.classList.add('hidden');
+}
+function showPhotoBackdrop(url) {
+  if (!photoMesh || !url) return;
+  new THREE.TextureLoader().load(url,
+    t => {
+      t.colorSpace = THREE.SRGBColorSpace;
+      const old = photoMesh.material.map;
+      photoMesh.material.map = t;
+      photoMesh.material.needsUpdate = true;
+      if (old) old.dispose();
+      photoMesh.visible = true;
+      if (ui.photoCredit) ui.photoCredit.classList.remove('hidden');
+    },
+    undefined,
+    () => { /* photo failed (CORS/network) — keep the stylized backdrop */ });
+}
+async function loadLocationBackdrop(lat, lng) {
+  // v4: real street-level photo of the chosen court via Mapillary API v4
+  // radius search. Graceful fallback everywhere: no token, no coverage, or
+  // any fetch/texture failure -> stylized skyline. Never breaks the game.
+  hidePhotoBackdrop();
+  const tok = mlyToken();
+  if (!tok || !lat || !lng) return false;
+  const key = lat.toFixed(3) + ',' + lng.toFixed(3);
+  try {
+    let pick = mlyPhotoCache[key];
+    if (!pick) {
+      const url = 'https://graph.mapillary.com/images?access_token=' + encodeURIComponent(tok)
+        + '&lat=' + lat + '&lng=' + lng + '&radius=50&limit=10'
+        + '&fields=id,computed_geometry,thumb_2048_url,captured_at,compass_angle';
+      const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      if (!r.ok) return false;
+      const j = await r.json();
+      const arr = (j && j.data) || [];
+      let best = null, bestD = 1e9;
+      for (const im of arr) {
+        if (!im || !im.thumb_2048_url) continue;
+        const g = im.computed_geometry, c = g && g.coordinates;
+        const d = c ? Math.hypot(c[1] - lat, c[0] - lng) : 0.01;
+        if (d < bestD) { bestD = d; best = im; }
+      }
+      if (!best) return false;
+      pick = { url: best.thumb_2048_url, capturedAt: best.captured_at };
+      mlyPhotoCache[key] = pick;
+    }
+    showPhotoBackdrop(pick.url);
+    return true;
+  } catch (_) { return false; }
+}
+function seededRand(seed) {
+  let s = seed >>> 0;
+  return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+}
+function applyVariant(v) {
+  // night | dusk | day — recolor sky, fog, lights, stars
+  if (v === 'day') {
+    scene.background.set(0x8fc3e8); scene.fog.color.set(0x8fc3e8); scene.fog.near = 40; scene.fog.far = 120;
+    if (starsPts) starsPts.visible = false;
+    if (moonMesh) moonMesh.visible = false;
+    if (LT.hemi) { LT.hemi.intensity = 1.35; LT.hemi.color.set(0xffffff); }
+    if (LT.amb) LT.amb.intensity = 0.5;
+    if (LT.key) { LT.key.intensity = 2.0; LT.key.color.set(0xfff6e0); }
+  } else if (v === 'dusk') {
+    scene.background.set(0x2a1430); scene.fog.color.set(0x2a1430); scene.fog.near = 34; scene.fog.far = 95;
+    if (starsPts) starsPts.visible = false;
+    if (moonMesh) moonMesh.visible = false;
+    if (LT.hemi) { LT.hemi.intensity = 1.0; LT.hemi.color.set(0xffb37a); }
+    if (LT.amb) LT.amb.intensity = 0.3;
+    if (LT.key) { LT.key.intensity = 1.9; LT.key.color.set(0xff9a5c); }
+  } else {
+    scene.background.set(0x05070d); scene.fog.color.set(0x05070d); scene.fog.near = 34; scene.fog.far = 95;
+    if (starsPts) starsPts.visible = true;
+    if (moonMesh) moonMesh.visible = true;
+    if (LT.hemi) { LT.hemi.intensity = 0.95; LT.hemi.color.set(0x9db8ff); }
+    if (LT.amb) LT.amb.intensity = 0.25;
+    if (LT.key) { LT.key.intensity = 1.7; LT.key.color.set(0xfff1d6); }
+  }
+}
+function rebuildSkyline(loc) {
+  if (skylineGrp) scene.remove(skylineGrp);
+  skylineGrp = new THREE.Group(); scene.add(skylineGrp);
+  const seed = [...(loc.name || 'X')].reduce((a, c) => a + c.charCodeAt(0), 7);
+  const R = seededRand(seed);
+  const wt = windowTexture();
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: wt });
+  const n = 22 + Math.floor(R() * 8);
+  for (let i = 0; i < n; i++) {
+    const w = 3 + R() * 4, h = 6 + R() * 16, d = 3 + R() * 3;
+    const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    const side = i % 3;
+    if (side === 0) b.position.set(-34 + R() * 68, h / 2 - 0.5, -30 + R() * 10);
+    else if (side === 1) b.position.set(-30 + R() * 10, h / 2 - 0.5, -18 + R() * 30);
+    else b.position.set(20 + R() * 10, h / 2 - 0.5, -18 + R() * 30);
+    skylineGrp.add(b);
+  }
+}
+function applyLocation(loc) {
+  G.loc = loc || FALLBACK_LOC;
+  loadLocationBackdrop(G.loc.lat, G.loc.lng).catch(() => {}); // Mapillary photo; falls back silently
+  if (courtMesh) {
+    const old = courtMesh.material.map;
+    courtMesh.material.map = courtTexture(G.loc.name, G.loc.sub);
+    courtMesh.material.needsUpdate = true;
+    if (old) old.dispose();
+  }
+  applyVariant(G.loc.variant || 'night');
+  rebuildSkyline(G.loc);
+  if (ui.hudLoc) ui.hudLoc.textContent = G.loc.name + (G.loc.sub ? ' — ' + G.loc.sub : '');
+}
+function renderLocPresets() {
+  ui.locPresets.innerHTML = LOC_PRESETS.map((l, i) =>
+    `<button class="loc-preset" data-i="${i}"><div class="pn">${esc(l.name)}</div><div class="ps">${esc(l.sub)}</div></button>`
+  ).join('');
+  ui.locPresets.querySelectorAll('.loc-preset').forEach(b =>
+    b.onclick = () => { audio(); pickLocation(LOC_PRESETS[+b.dataset.i]); });
+}
+let locDeb = null;
+async function searchLoc(q) {
+  try {
+    const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=5&q=' + encodeURIComponent(q),
+      { headers: { 'Accept': 'application/json' } });
+    const arr = await r.json();
+    if (!arr.length) { ui.locResults.innerHTML = '<p class="status">No results — try another search.</p>'; return; }
+    ui.locResults.innerHTML = arr.map((o, i) => {
+      const parts = String(o.display_name || '').split(',');
+      return `<button class="loc-res" data-i="${i}">${esc(parts.slice(0, 3).join(','))}</button>`;
+    }).join('');
+    ui.locResults.querySelectorAll('.loc-res').forEach(b => b.onclick = () => {
+      audio();
+      const o = arr[+b.dataset.i], parts = String(o.display_name || '').split(',');
+      pickLocation({
+        name: (parts[0] || 'BLACKTOP').trim().toUpperCase().slice(0, 24) || 'BLACKTOP',
+        sub: parts.slice(1, 3).join(',').trim().toUpperCase().slice(0, 30) || 'USA',
+        lat: +o.lat || 0, lng: +o.lon || 0, variant: 'night',
+      });
+    });
+  } catch (_) {
+    ui.locResults.innerHTML = '<p class="status">Search unavailable — pick a preset court below.</p>';
+  }
+}
+function showLocate(mode) {
+  G.locMode = mode; // 'host' | 'practice'
+  ui.locSearch.value = ''; ui.locResults.innerHTML = ''; ui.locStatus.textContent = '';
+  renderLocPresets();
+  hide(ui.lobby); hide(ui.menu);
+  show(ui.locate);
+  setTimeout(() => ui.locSearch.focus(), 300);
+}
+function pickLocation(loc) {
+  hide(ui.locate);
+  if (G.locMode === 'host') hostPickLocation(loc);
+  else { applyLocation(loc); startPractice(); }
+}
+function wireLocate() {
+  ui.locSearch.addEventListener('input', () => {
+    clearTimeout(locDeb);
+    const q = ui.locSearch.value.trim();
+    if (q.length < 3) { ui.locResults.innerHTML = ''; return; }
+    locDeb = setTimeout(() => searchLoc(q), 450);
+  });
+  ui.locSearch.addEventListener('keydown', e => e.stopPropagation());
+  $('btn-loc-back').onclick = () => {
+    hide(ui.locate);
+    if (G.locMode === 'host') show(ui.lobby); else show(ui.menu);
+  };
 }
 
 /* ================= NETCODE (PeerJS star: host <-> each guest) ================= */
@@ -222,6 +435,8 @@ function normInput(d) {
     sprint: !!d.sprint, stickSprint: !!d.stickSprint, shootHeld: !!d.shoot,
     dribble: d.dribble ? 1 : 0, steal: d.steal ? 1 : 0, pass: d.pass ? 1 : 0,
     block: d.block ? 1 : 0, sw: d.sw ? 1 : 0, cut: d.cut ? 1 : 0,
+    postup: !!d.postup, stepback: d.stepback ? 1 : 0, quickShot: d.quickShot ? 1 : 0,
+    proDir: d.proDir ? 1 : 0, pdx: +d.pdx || 0, pdz: +d.pdz || 0,
   };
 }
 function broadcastLobby() {
@@ -253,8 +468,12 @@ function hostStart() {
   const n = (ui.hostName.value || '').trim() || 'HOST';
   G.players[0].name = n.slice(0, 12);
   if (activeCount() < 2) return;
+  showLocate('host'); // host picks the court, then the game starts
+}
+function hostPickLocation(loc) {
+  applyLocation(loc);
   buildPlayers();
-  const msg = { type: 'start', roster: rosterMsg() };
+  const msg = { type: 'start', roster: rosterMsg(), loc };
   for (const k in G.conns) { try { G.conns[k].send(msg); } catch (_) {} }
   startCountdown();
 }
@@ -284,6 +503,7 @@ function setupGuest(code, name) {
         renderGuestRoster(d.roster);
       } else if (d.type === 'start') {
         guestBuildPlayers(d.roster);
+        applyLocation(d.loc || FALLBACK_LOC);
         hide(ui.lobbyg); hide(ui.menu);
         show(ui.hud); show(ui.controls);
         ui.hudCode.textContent = 'ROOM ' + code;
@@ -353,13 +573,17 @@ function startInputLoop() {
   stopInputLoop();
   inputTimer = setInterval(() => {
     if (G.conn && G.conn.open && (G.phase === 'play' || G.phase === 'countdown')) {
+      const src = G.rotPause ? NULL_INP : input;
       G.conn.send({ type: 'input', seq: ++G.lastInputSeq,
-        mx: +input.mx.toFixed(3), mz: +input.mz.toFixed(3),
-        sprint: input.sprint ? 1 : 0, stickSprint: input.stickSprint ? 1 : 0,
-        shoot: input.shootHeld ? 1 : 0,
-        dribble: input.dribble ? 1 : 0, steal: input.steal ? 1 : 0, pass: input.pass ? 1 : 0,
-        block: input.block ? 1 : 0, sw: input.sw ? 1 : 0, cut: input.cut ? 1 : 0 });
+        mx: +src.mx.toFixed(3), mz: +src.mz.toFixed(3),
+        sprint: src.sprint ? 1 : 0, stickSprint: src.stickSprint ? 1 : 0,
+        shoot: src.shootHeld ? 1 : 0,
+        dribble: src.dribble ? 1 : 0, steal: src.steal ? 1 : 0, pass: src.pass ? 1 : 0,
+        block: src.block ? 1 : 0, sw: src.sw ? 1 : 0, cut: src.cut ? 1 : 0,
+        postup: src.postup ? 1 : 0, stepback: src.stepback ? 1 : 0, quickShot: src.quickShot ? 1 : 0,
+        proDir: src.proDir ? 1 : 0, pdx: +src.pdx.toFixed(3), pdz: +src.pdz.toFixed(3) });
       input.dribble = input.steal = input.pass = input.block = input.sw = input.cut = 0;
+      input.stepback = input.quickShot = input.proDir = 0;
     }
   }, 33);
 }
@@ -367,10 +591,12 @@ function stopInputLoop() { if (inputTimer) clearInterval(inputTimer); inputTimer
 
 /* ================= THREE.JS SCENE ================= */
 let renderer, scene, camera;
+let courtMesh = null, skylineGrp = null, starsPts = null, moonMesh = null;
+const LT = {}; // light refs for location variants (v4)
 const PX = x => (x + COURT_W / 2) / COURT_W * 1024;
 const PZ = z => (z + COURT_L / 2) / COURT_L * 960;
 
-function courtTexture() {
+function courtTexture(name, sub) {
   const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 960;
   const g = cv.getContext('2d');
   g.fillStyle = '#23282f'; g.fillRect(0, 0, 1024, 960);
@@ -396,6 +622,15 @@ function courtTexture() {
   g.stroke();
   line(-7.5 + 0.9, -7, -7.5 + 0.9, -4.4); line(7.5 - 0.9, -7, 7.5 - 0.9, -4.4);
   g.beginPath(); g.arc(PX(HX), hz, (1.25 / COURT_W) * 1024, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
+  // v4: paint the chosen court name big on the asphalt (half-court)
+  const nm = String(name || 'STREETBALL').slice(0, 26), sb = String(sub || '').slice(0, 34);
+  g.save();
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = 'rgba(235,240,248,0.20)';
+  g.font = '900 76px -apple-system, "Segoe UI", sans-serif';
+  g.fillText(nm, 512, 700);
+  if (sb) { g.font = '700 34px -apple-system, "Segoe UI", sans-serif'; g.fillStyle = 'rgba(235,240,248,0.16)'; g.fillText(sb, 512, 762); }
+  g.restore();
   const tx = new THREE.CanvasTexture(cv); tx.anisotropy = 4; tx.colorSpace = THREE.SRGBColorSpace;
   return tx;
 }
@@ -427,16 +662,20 @@ function initThree() {
   layoutCamera();
 
   scene.add(new THREE.HemisphereLight(0x9db8ff, 0x201812, 0.95));
+  LT.hemi = scene.children[scene.children.length - 1];
   scene.add(new THREE.AmbientLight(0xffffff, 0.25));
-  const key = new THREE.DirectionalLight(0xfff1d6, 1.7); key.position.set(7, 14, 7); scene.add(key);
-  const fill = new THREE.DirectionalLight(0x8fb4ff, 0.5); fill.position.set(-8, 10, -4); scene.add(fill);
+  LT.amb = scene.children[scene.children.length - 1];
+  const key = new THREE.DirectionalLight(0xfff1d6, 1.7); key.position.set(7, 14, 7); scene.add(key); LT.key = key;
+  const fill = new THREE.DirectionalLight(0x8fb4ff, 0.5); fill.position.set(-8, 10, -4); scene.add(fill); LT.fill = fill;
 
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), new THREE.MeshLambertMaterial({ color: 0x11141a }));
   ground.rotation.x = -Math.PI / 2; ground.position.y = -0.02; scene.add(ground);
-  const court = new THREE.Mesh(new THREE.PlaneGeometry(COURT_W, COURT_L), new THREE.MeshLambertMaterial({ map: courtTexture() }));
-  court.rotation.x = -Math.PI / 2; scene.add(court);
+  courtMesh = new THREE.Mesh(new THREE.PlaneGeometry(COURT_W, COURT_L), new THREE.MeshLambertMaterial({ map: courtTexture() }));
+  courtMesh.rotation.x = -Math.PI / 2; scene.add(courtMesh);
+  buildPhotoMesh(); // v4: curved plane for real Mapillary photo backdrops
 
-  buildHoop(); buildLights(); buildSkyline(); buildStars();
+  buildHoop(); buildLights(); buildStars();
+  rebuildSkyline(FALLBACK_LOC);
   window.addEventListener('resize', layoutCamera);
 }
 function layoutCamera() {
@@ -487,19 +726,7 @@ function buildLights() {
     head.position.set(x, 10.6, z); head.lookAt(0, 0, -1); scene.add(head);
   }
 }
-function buildSkyline() {
-  const wt = windowTexture();
-  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: wt });
-  for (let i = 0; i < 26; i++) {
-    const w = rand(3, 7), h = rand(6, 22), d = rand(3, 6);
-    const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-    const side = i % 3;
-    if (side === 0) b.position.set(rand(-34, 34), h / 2 - 0.5, rand(-30, -20));
-    else if (side === 1) b.position.set(rand(-30, -20), h / 2 - 0.5, rand(-18, 12));
-    else b.position.set(rand(20, 30), h / 2 - 0.5, rand(-18, 12));
-    scene.add(b);
-  }
-}
+// skyline is built by rebuildSkyline(loc) — see LOCATIONS section (v4)
 function buildStars() {
   const n = 350, pos = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
@@ -507,9 +734,10 @@ function buildStars() {
     pos[i * 3] = Math.cos(a) * Math.cos(e) * r; pos[i * 3 + 1] = Math.sin(e) * r; pos[i * 3 + 2] = Math.sin(a) * Math.cos(e) * r;
   }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0xcfe0ff, size: 0.9, sizeAttenuation: false })));
-  const moon = new THREE.Mesh(new THREE.CircleGeometry(3.2, 24), new THREE.MeshBasicMaterial({ color: 0xf4f1de, fog: false }));
-  moon.position.set(-38, 42, -90); moon.lookAt(0, 10, 0); scene.add(moon);
+  starsPts = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xcfe0ff, size: 0.9, sizeAttenuation: false }));
+  scene.add(starsPts);
+  moonMesh = new THREE.Mesh(new THREE.CircleGeometry(3.2, 24), new THREE.MeshBasicMaterial({ color: 0xf4f1de, fog: false }));
+  moonMesh.position.set(-38, 42, -90); moonMesh.lookAt(0, 10, 0); scene.add(moonMesh);
 }
 
 // ---------- players & ball meshes ----------
@@ -582,7 +810,7 @@ function syncMesh(p) {
 }
 
 /* ================= INPUT (touch + keyboard, 2K-mobile style) ================= */
-const input = { mx: 0, mz: 0, sprint: false, stickSprint: false, shootHeld: false, dribble: 0, steal: 0, pass: 0, block: 0, sw: 0, cut: 0 };
+const input = { mx: 0, mz: 0, sprint: false, stickSprint: false, shootHeld: false, dribble: 0, steal: 0, pass: 0, block: 0, sw: 0, cut: 0, postup: false, stepback: 0, quickShot: 0, proDir: 0, pdx: 0, pdz: 0 };
 const keys = {};
 addEventListener('keydown', e => {
   if (e.repeat) return; keys[e.code] = true; audio();
@@ -645,21 +873,85 @@ function bindBtn(id, down, up) {
   el.addEventListener('mousedown', e => { e.preventDefault(); down(); });
   el.addEventListener('mouseup', () => up && up());
 }
-bindBtn('b-shoot', () => input.shootHeld = true, () => input.shootHeld = false);
 bindBtn('b-sprint', () => input.sprint = true, () => input.sprint = false);
-bindBtn('b-dribble', () => input.dribble = 1);
-bindBtn('b-steal', () => input.steal = 1);
 bindBtn('b-pass', () => input.pass = 1);
-bindBtn('b-block', () => input.block = 1);
 bindBtn('b-switch', () => input.sw = 1);
 bindBtn('b-cut', () => input.cut = 1);
 document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 document.addEventListener('contextmenu', e => e.preventDefault());
 document.addEventListener('dblclick', e => e.preventDefault());
 
+/* ============ PRO STICK (v4 — the 2K right stick, touch) ============ */
+/* LEFT virtual stick moves. RIGHT stick: flick = dribble/steal, push up +   */
+/* release = jumper (timing meter), push down hold = post up, down tap =     */
+/* stepback jumper. On defense: flick = steal swipe, push up = block.        */
+(function () {
+  const zone = $('pro-zone'); let tid = null, ox = 0, oy = 0, t0 = 0;
+  const R = 52, FLICK_MS = 250, FLICK_PX = 28;
+  let shootMode = false, downHeld = false;
+  const me = () => G.players[G.myIdx];
+  zone.addEventListener('touchstart', e => {
+    e.preventDefault(); audio();
+    const t = e.changedTouches[0]; tid = t.identifier; ox = t.clientX; oy = t.clientY; t0 = performance.now();
+    ui.proBase.style.display = 'block';
+    ui.proBase.style.left = (ox - 66) + 'px'; ui.proBase.style.top = (oy - 66) + 'px';
+    shootMode = false; downHeld = false;
+  }, { passive: false });
+  zone.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) if (t.identifier === tid) {
+      let dx = t.clientX - ox, dy = t.clientY - oy;
+      const l = Math.hypot(dx, dy);
+      if (l > R) { dx = dx / l * R; dy = dy / l * R; }
+      ui.proKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+      const p = me(); if (!p) return;
+      const onOff = G.offenseTeam === p.team, hasBall = p.hasBall;
+      const upHeld = dy < -R * 0.55, dnHeld = dy > R * 0.55;
+      if (hasBall && upHeld && !shootMode) { shootMode = true; input.shootHeld = true; }
+      if (hasBall && dnHeld && !downHeld) { downHeld = true; input.postup = true; }
+      else if (!dnHeld && downHeld) { downHeld = false; input.postup = false; }
+      if (!onOff && upHeld && !shootMode) { /* block fires on release */ }
+    }
+  }, { passive: false });
+  const end = e => {
+    for (const t of e.changedTouches) if (t.identifier === tid) {
+      const dt = performance.now() - t0;
+      const dx = t.clientX - ox, dy = t.clientY - oy;
+      const l = Math.hypot(dx, dy);
+      const p = me();
+      tid = null; ui.proBase.style.display = 'none';
+      ui.proKnob.style.transform = 'translate(-50%,-50%)';
+      if (shootMode) { input.shootHeld = false; shootMode = false; }
+      if (downHeld) { input.postup = false; downHeld = false; }
+      if (!p) return;
+      const onOff = G.offenseTeam === p.team, hasBall = p.hasBall;
+      const quick = dt < FLICK_MS && l > FLICK_PX && !shootMode;
+      const upRel = dy < -R * 0.5, dnRel = dy > R * 0.5;
+      if (!onOff) {
+        // DEFENSE: any flick = steal swipe, push-up release = block jump
+        if (quick) input.steal = 1;
+        else if (upRel) input.block = 1;
+        return;
+      }
+      if (!hasBall) return; // off-ball offense: stick does nothing
+      if (quick) {
+        const ax = Math.abs(dx), ay = Math.abs(dy);
+        if (ay >= ax && dy > 0) input.stepback = 1;                    // flick down = stepback jumper
+        else if (ay > ax && dy < 0) input.quickShot = 1;              // flick up = quick jumper
+        else {                                                        // flick left/right = dribble move
+          const nl = Math.hypot(dx, dy) || 1;
+          input.pdx = dx / nl; input.pdz = dy / nl;                   // screen: right=+x, down=+z
+          input.proDir = 1; input.dribble = 1;
+        }
+      }
+    }
+  };
+  zone.addEventListener('touchend', end); zone.addEventListener('touchcancel', end);
+})();
+
 /* ============ GAMEPAD (Bluetooth console controllers, standard mapping) ============ */
 /* Merged with touch/keyboard: all three write into the same `input` object.       */
-const pad = { prev: [], rsUp: false, rsL: false, rsR: false, driving: false, connected: false, shootTok: 0, quitArm: 0, lastActivity: 0 };
+const pad = { prev: [], rsUp: false, rsL: false, rsR: false, rsDown: false, downT0: 0, driving: false, connected: false, quitArm: 0, lastActivity: 0 };
 const PAD_DZ = 0.25, PAD_IDLE_MS = 8000;   // touch controls return after 8s of no pad input
 function padDZ(v) { const a = Math.abs(v); return a < PAD_DZ ? 0 : (v - Math.sign(v) * PAD_DZ) / (1 - PAD_DZ); }
 function firstPad() {
@@ -670,10 +962,8 @@ function firstPad() {
 }
 function padBtn(gp, i) { const b = gp.buttons[i]; return b ? (b.pressed || b.value > 0.4) : false; }
 function padQuickShot() {
-  // right-stick flick up: quick-release jumper through the existing timing meter
-  input.shootHeld = true;
-  const tok = ++pad.shootTok;
-  setTimeout(() => { if (tok === pad.shootTok) input.shootHeld = false; }, 350);
+  // right-stick flick up on offense: quick jumper (sim auto-releases at ~0.6 power)
+  input.quickShot = 1;
 }
 function onPadStart() {
   audio();
@@ -725,14 +1015,40 @@ function pollGamepad() {
   const b = i => padBtn(gp, i);
   const prev = pad.prev;
   const edge = i => b(i) && !prev[i];
-  // right stick flicks: up = shoot, left/right = dribble move
+  // --- right stick = pro stick (v4): offense flicks = shot/dribble/stepback/postup,
+  // --- defense: flick = steal, push up = block
+  const me = G.players[G.myIdx];
+  const onD = !!(me && me.active && G.offenseTeam !== me.team);
+  const hasBall = !!(me && me.hasBall);
   const rsx = padDZ(gp.axes[2] || 0), rsy = padDZ(gp.axes[3] || 0);
-  if (rsy < -0.7 && !pad.rsUp) { pad.rsUp = true; padQuickShot(); }
-  else if (rsy >= -0.45) pad.rsUp = false;
-  if (rsx < -0.7 && !pad.rsL) { pad.rsL = true; input.dribble = 1; }
-  else if (rsx >= -0.45) pad.rsL = false;
-  if (rsx > 0.7 && !pad.rsR) { pad.rsR = true; input.dribble = 1; }
-  else if (rsx <= 0.45) pad.rsR = false;
+  const now = performance.now();
+  if (!onD && hasBall) {
+    if (rsy < -0.7 && !pad.rsUp) { pad.rsUp = true; padQuickShot(); }
+    else if (rsy >= -0.45) pad.rsUp = false;
+    if (rsx < -0.7 && !pad.rsL) { pad.rsL = true; input.pdx = -1; input.pdz = 0; input.proDir = 1; input.dribble = 1; }
+    else if (rsx >= -0.45) pad.rsL = false;
+    if (rsx > 0.7 && !pad.rsR) { pad.rsR = true; input.pdx = 1; input.pdz = 0; input.proDir = 1; input.dribble = 1; }
+    else if (rsx <= 0.45) pad.rsR = false;
+    if (rsy > 0.7 && !pad.rsDown) { pad.rsDown = true; pad.downT0 = now; input.postup = true; }
+    else if (rsy <= 0.45 && pad.rsDown) {
+      pad.rsDown = false; input.postup = false;
+      if (now - pad.downT0 < 250) input.stepback = 1; // quick down-tap = stepback jumper
+    }
+  } else if (onD) {
+    if (rsy < -0.7 && !pad.rsUp) { pad.rsUp = true; input.block = 1; }
+    else if (rsy >= -0.45) pad.rsUp = false;
+    const flicked = (rsx < -0.7 && !pad.rsL) || (rsx > 0.7 && !pad.rsR) || (rsy > 0.7 && !pad.rsDown);
+    if (flicked) {
+      pad.rsL = rsx < -0.7; pad.rsR = rsx > 0.7; pad.rsDown = rsy > 0.7;
+      input.steal = 1;
+    } else {
+      if (rsx >= -0.45) pad.rsL = false;
+      if (rsx <= 0.45) pad.rsR = false;
+      if (rsy <= 0.45) pad.rsDown = false;
+    }
+  } else {
+    pad.rsUp = pad.rsL = pad.rsR = pad.rsDown = false; input.postup = false;
+  }
   if (edge(2)) input.shootHeld = true;            // X / Square: hold-release timing
   if (!b(2) && prev[2]) input.shootHeld = false;
   if (edge(0)) input.pass = 1;                    // A / Cross
@@ -755,7 +1071,7 @@ function inpFor(i) {
   if (G.mode === 'host') return G.inputs[i] || NULL_INP;
   return NULL_INP;
 }
-function clearEdge(inp) { inp.dribble = inp.steal = inp.pass = inp.block = inp.sw = inp.cut = 0; }
+function clearEdge(inp) { inp.dribble = inp.steal = inp.pass = inp.block = inp.sw = inp.cut = inp.stepback = inp.quickShot = 0; inp.proDir = 0; }
 function nearestOpp(p, idx, maxD) {
   let best = null, bd = maxD;
   for (let j = 0; j < G.players.length; j++) {
@@ -774,7 +1090,8 @@ function gbCheck(p, idx) {
   }
 }
 function applyMovement(p, inp, dt) {
-  const sp = SPEED * ((inp.sprint || inp.stickSprint) ? SPRINT_MULT : 1);
+  let sp = SPEED * ((inp.sprint || inp.stickSprint) ? SPRINT_MULT : 1);
+  if (p.postStr) sp *= 0.55; // v4: backing down is slow but strong
   const sp2 = p.stumble > 0 ? sp * 0.35 : sp;
   if (p.dashT > 0) { p.dashT -= dt; p.x += p.dashDx * 11 * dt; p.z += p.dashDz * 11 * dt; }
   else {
@@ -827,8 +1144,9 @@ function tryDribble(p, idx, inp) {
   if (p.crossCd > 0 || !p.hasBall) return;
   p.crossCd = 1.2; p.dashT = 0.18;
   let dx = inp.mx, dz = inp.mz;
-  if (Math.hypot(dx, dz) < 0.2) { dx = Math.sin(p.face); dz = Math.cos(p.face); }
-  const l = Math.hypot(dx, dz); p.dashDx = dx / l; p.dashDz = dz / l;
+  if (inp.proDir && (inp.pdx || inp.pdz)) { dx = inp.pdx; dz = inp.pdz; }  // v4: pro-stick flick direction
+  else if (Math.hypot(dx, dz) < 0.2) { dx = Math.sin(p.face); dz = Math.cos(p.face); }
+  const l = Math.hypot(dx, dz) || 1; p.dashDx = dx / l; p.dashDz = dz / l;
   p.trick = Math.min(100, p.trick + 12); gbCheck(p, idx);
   S.cross();
   const o = nearestOpp(p, idx, 2.3);
@@ -836,11 +1154,24 @@ function tryDribble(p, idx, inp) {
     o.stumble = 1.1; if (idx === G.myIdx) showBanner('ANKLE BREAKER!', '', 800);
   }
 }
+function tryStepback(p, idx) {
+  // v4: quick down-flick on the pro stick — dash away from the rim into a jumper
+  if (p.stepCd > 0 || !p.hasBall || p.shootPow >= 0) return;
+  p.stepCd = 1.4;
+  const dx = p.x - HX, dz = p.z - HZ, l = Math.hypot(dx, dz) || 1;
+  p.dashT = 0.25; p.dashDx = dx / l; p.dashDz = dz / l;
+  p.face = Math.atan2(dx, dz);
+  p.shootPow = 0; p.autoRel = 0.65; S.shoot();
+  p.trick = Math.min(100, p.trick + 6); gbCheck(p, idx);
+  if (idx === G.myIdx) showBanner('STEPBACK!', '', 650);
+}
 function trySteal(p, idx) {
   if (p.stealCd > 0 || p.hasBall) return;
   p.stealCd = 2.2; p.armUp = 0.7;
   const h = G.ball.holder, hp = h >= 0 ? G.players[h] : null;
-  if (hp && hp.active && hp.team !== p.team && dist2d(p.x, p.z, hp.x, hp.z) < 1.9 && Math.random() < 0.38) {
+  if (hp && hp.active && hp.team !== p.team && dist2d(p.x, p.z, hp.x, hp.z) < 1.9) {
+    const chance = hp.postStr ? 0.12 : 0.38; // v4: post-up strength protects the ball
+    if (Math.random() < chance) {
     hp.hasBall = false; hp.shootPow = -1;
     p.hasBall = true;
     const b = G.ball; b.state = 'held'; b.holder = idx; b.vx = b.vy = b.vz = 0;
@@ -848,6 +1179,7 @@ function trySteal(p, idx) {
     p.trick = Math.min(100, p.trick + 10); gbCheck(p, idx);
     S.steal();
     if (idx === G.myIdx) showBanner('STEAL!', '', 700);
+    }
   }
 }
 function tryPass(p, idx) {
@@ -993,16 +1325,22 @@ function simTick(dt) {
     p.blockCd = Math.max(0, p.blockCd - dt);
     p.swCd = Math.max(0, p.swCd - dt);
     p.cutCd = Math.max(0, p.cutCd - dt);
+    p.stepCd = Math.max(0, p.stepCd - dt);
+    p.postStr = !!(inp.postup && p.hasBall && dist2d(p.x, p.z, HX, HZ) < 4.5); // v4: post-up strength
     applyMovement(p, inp, dt);
     updateJump(p, dt);
     if (p.shootPow >= 0) {
       p.shootPow = Math.min(1, p.shootPow + dt / 0.9);
       p.armUp = Math.min(1, p.armUp + dt * 7);
-      if (!inp.shootHeld) releaseShot(p, i);
+      if (p.autoRel > 0) { p.autoRel -= dt; if (p.autoRel <= 0) releaseShot(p, i); } // v4: stepback auto-release
+      else if (!inp.shootHeld) releaseShot(p, i);
     } else if (inp.shootHeld && p.hasBall && p.dashT <= 0 && p.stumble <= 0) {
       p.shootPow = 0; S.shoot();
+    } else if (inp.quickShot && p.hasBall && p.dashT <= 0 && p.stumble <= 0) {
+      p.shootPow = 0; p.autoRel = 0.6; S.shoot(); // v4: pro-stick flick-up jumper
     }
     if (inp.dribble) tryDribble(p, i, inp);
+    if (inp.stepback) tryStepback(p, i);
     if (inp.steal) trySteal(p, i);
     if (inp.pass) tryPass(p, i);
     if (inp.block) tryBlock(p, i);
@@ -1077,24 +1415,24 @@ function updateButtons() {
   // controller in use (connected + recent input) -> hide touch controls, show tiny pad icon
   const padActive = pad.connected && inGame && (performance.now() - pad.lastActivity < PAD_IDLE_MS);
   $('joy-zone').style.display = padActive ? 'none' : '';
+  $('pro-zone').style.display = padActive ? 'none' : '';
   $('btns').style.display = padActive ? 'none' : '';
   const pi = $('pad-icon');
   if (pi) pi.style.display = padActive ? 'flex' : 'none';
   const me = G.players[G.myIdx];
   if (!me || !me.active || !inGame || padActive) {
-    ['b-shoot', 'b-pass', 'b-dribble', 'b-cut', 'b-steal', 'b-block', 'b-switch', 'b-sprint'].forEach(id => show(id, false));
+    ['b-pass', 'b-cut', 'b-switch', 'b-sprint'].forEach(id => show(id, false));
+    hide(ui.proHint);
     return;
   }
   const solo = G.mode === 'practice';
   const hasBall = me.hasBall, onOff = G.offenseTeam === me.team;
-  show('b-shoot', hasBall);
   show('b-pass', hasBall && !solo);
-  show('b-dribble', hasBall);
   show('b-cut', !hasBall && onOff && !solo);
-  show('b-steal', !onOff && !solo);
-  show('b-block', !onOff && !solo);
   show('b-switch', !onOff && !solo);
   show('b-sprint', true);
+  // one-time pro-stick coach mark
+  if (!G._proHintShown) { G._proHintShown = true; show(ui.proHint); setTimeout(() => hide(ui.proHint), 5000); }
 }
 function updateHUD() {
   if (!G.mode) return;
@@ -1130,14 +1468,38 @@ function showGameOver() {
 
 /* ================= FLOW ================= */
 let bcTimer = null;
+function checkOrientation() {
+  // v4: Hoop Dreams plays in landscape — portrait shows a full-screen overlay + pauses
+  const portrait = innerHeight > innerWidth;
+  const active = (G.phase === 'play' || G.phase === 'countdown') && (G.mode === 'host' || G.mode === 'guest' || G.mode === 'practice');
+  if (portrait && active) {
+    show(ui.rotateOverlay);
+    if (G.mode === 'host' || G.mode === 'practice') G.paused = true;
+    G.rotPause = true;
+  } else {
+    hide(ui.rotateOverlay);
+    if (G.mode === 'host' || G.mode === 'practice') G.paused = false;
+    G.rotPause = false;
+  }
+}
+window.addEventListener('resize', checkOrientation);
+window.addEventListener('orientationchange', () => setTimeout(checkOrientation, 300));
 function startCountdown() {
   hide(ui.lobby); hide(ui.lobbyg); hide(ui.menu); hide(ui.gameover);
   show(ui.hud); show(ui.controls);
   ui.hudCode.textContent = (G.mode === 'practice' ? 'PRACTICE' : 'ROOM ' + G.code);
+  // v4: try to lock landscape (works on Android Chrome; iOS Safari ignores gracefully)
+  try {
+    if (screen.orientation && screen.orientation.lock) {
+      const p = screen.orientation.lock('landscape');
+      if (p && p.catch) p.catch(() => {});
+    }
+  } catch (_) {}
   resetMatch();
   G.paused = false;
   G.phase = 'countdown'; G.cdT = 3.4; G.cdLast = 4; render.prevPhase = 'lobby'; G.overShown = false;
   if (G.mode === 'host' && !bcTimer) bcTimer = setInterval(hostBroadcast, 50);
+  checkOrientation();
 }
 function startPractice() {
   G.mode = 'practice'; G.myIdx = 0;
@@ -1151,7 +1513,7 @@ function wireMenu() {
   document.addEventListener('click', e => { if (e.target && e.target.tagName === 'BUTTON') e.target.blur(); });
   $('btn-host').onclick = () => { audio(); setupHost(); };
   $('btn-join').onclick = () => { audio(); hide(ui.menu); show(ui.joinui); setTimeout(() => ui.joinCode.focus(), 300); };
-  $('btn-practice').onclick = () => { audio(); startPractice(); };
+  $('btn-practice').onclick = () => { audio(); showLocate('practice'); };
   $('btn-cancel-lobby').onclick = () => location.reload();
   $('btn-cancel-lobbyg').onclick = () => location.reload();
   $('btn-cancel-join').onclick = () => { hide(ui.joinui); show(ui.menu); };
@@ -1178,6 +1540,20 @@ function wireMenu() {
     hide(ui.gameover); show(ui.controls);
     resetMatch(); G.phase = 'countdown'; G.cdT = 3.4; G.cdLast = 4;
   };
+  // v4: Mapillary token settings — free real-photo backdrops, no rebuild needed
+  ui.mlyToken.value = mlyToken();
+  ui.mlyToken.addEventListener('keydown', e => e.stopPropagation());
+  ui.btnMlySave.onclick = () => {
+    audio();
+    const v = ui.mlyToken.value.trim();
+    try {
+      if (v) localStorage.setItem('hd_mly_token', v);
+      else localStorage.removeItem('hd_mly_token');
+    } catch (_) {}
+    ui.mlyStatus.textContent = v
+      ? 'Saved — real photos load automatically when you pick a court.'
+      : 'Cleared — stylized backdrops only.';
+  };
 }
 
 /* ================= MAIN LOOP + BOOT ================= */
@@ -1203,6 +1579,7 @@ function boot() {
   G.ball = newBall(); G.ball.mesh = makeBallMesh();
   G.ball.mesh.visible = false;
   wireMenu();
+  wireLocate();
   const q = new URLSearchParams(location.search).get('join');
   if (q && /^[a-z0-9]{4}$/i.test(q)) { hide(ui.menu); show(ui.joinui); ui.joinCode.value = q.toUpperCase(); }
   requestAnimationFrame(loop);
