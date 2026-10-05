@@ -243,6 +243,53 @@ function showPhotoBackdrop(url) {
     undefined,
     () => { /* photo failed (CORS/network) — keep the stylized backdrop */ });
 }
+/* ---- v6: real satellite map under the court (free Esri World Imagery, no key) ---- */
+function latLngToTile(lat, lng, z) {
+  const n = Math.pow(2, z);
+  const x = Math.floor((lng + 180) / 360 * n);
+  const lr = lat * Math.PI / 180;
+  const y = Math.floor((1 - Math.log(Math.tan(lr) + 1 / Math.cos(lr)) / Math.PI) / 2 * n);
+  return { x, y };
+}
+let satTex = null, satKey = '';
+function showMapCredit() {
+  if (ui.photoCredit) ui.photoCredit.classList.remove('hidden');
+}
+function loadSatelliteGround(lat, lng) {
+  // Paints a real satellite view of the chosen court onto the ground plane.
+  // Esri World_Imagery tiles are free with no key; 3x3 tiles at z18 ~ 200m across.
+  if (!lat || !lng || !groundMesh) return;
+  const key = lat.toFixed(3) + ',' + lng.toFixed(3);
+  if (key === satKey && satTex) return; // already showing this spot
+  const z = 18, c = latLngToTile(lat, lng, z), S = 256;
+  const cv = document.createElement('canvas'); cv.width = cv.height = S * 3;
+  const ctx = cv.getContext('2d');
+  let done = 0, failed = false;
+  const base = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/';
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+    const img = new Image(); img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      if (failed) return;
+      ctx.drawImage(img, (dx + 1) * S, (dy + 1) * S);
+      if (++done === 9) {
+        try {
+          const t = new THREE.CanvasTexture(cv);
+          t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+          const old = groundMesh.material.map;
+          groundMesh.material.map = t;
+          groundMesh.material.color.set(0xffffff);
+          groundMesh.material.needsUpdate = true;
+          if (old) old.dispose();
+          if (satTex) satTex.dispose();
+          satTex = t; satKey = key;
+          showMapCredit();
+        } catch (_) { /* keep the dark ground */ }
+      }
+    };
+    img.onerror = () => { failed = true; };
+    img.src = base + z + '/' + (c.y + dy) + '/' + (c.x + dx);
+  }
+}
 async function loadLocationBackdrop(lat, lng) {
   // v4: real street-level photo of the chosen court via Mapillary API v4
   // radius search. Graceful fallback everywhere: no token, no coverage, or
@@ -255,7 +302,7 @@ async function loadLocationBackdrop(lat, lng) {
     let pick = mlyPhotoCache[key];
     if (!pick) {
       const url = 'https://graph.mapillary.com/images?access_token=' + encodeURIComponent(tok)
-        + '&lat=' + lat + '&lng=' + lng + '&radius=500&limit=20'
+        + '&lat=' + lat + '&lng=' + lng + '&radius=50&limit=10'
         + '&fields=id,computed_geometry,thumb_2048_url,captured_at,compass_angle';
       const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
       if (!r.ok) return false;
@@ -326,6 +373,7 @@ function rebuildSkyline(loc) {
 function applyLocation(loc) {
   G.loc = loc || FALLBACK_LOC;
   loadLocationBackdrop(G.loc.lat, G.loc.lng).catch(() => {}); // Mapillary photo; falls back silently
+  loadSatelliteGround(G.loc.lat, G.loc.lng); // v6: real satellite map under the court
   if (courtMesh) {
     const old = courtMesh.material.map;
     courtMesh.material.map = courtTexture(G.loc.name, G.loc.sub);
@@ -629,7 +677,7 @@ function stopInputLoop() { if (inputTimer) clearInterval(inputTimer); inputTimer
 
 /* ================= THREE.JS SCENE ================= */
 let renderer, scene, camera;
-let courtMesh = null, skylineGrp = null, starsPts = null, moonMesh = null;
+let courtMesh = null, skylineGrp = null, starsPts = null, moonMesh = null, groundMesh = null;
 const LT = {}; // light refs for location variants (v4)
 const PX = x => (x + COURT_W / 2) / COURT_W * 1024;
 const PZ = z => (z + COURT_L / 2) / COURT_L * 960;
@@ -708,6 +756,7 @@ function initThree() {
 
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), new THREE.MeshLambertMaterial({ color: 0x11141a }));
   ground.rotation.x = -Math.PI / 2; ground.position.y = -0.02; scene.add(ground);
+  groundMesh = ground; // v6: satellite map texture gets painted here
   courtMesh = new THREE.Mesh(new THREE.PlaneGeometry(COURT_W, COURT_L), new THREE.MeshLambertMaterial({ map: courtTexture() }));
   courtMesh.rotation.x = -Math.PI / 2; scene.add(courtMesh);
   buildPhotoMesh(); // v4: curved plane for real Mapillary photo backdrops
