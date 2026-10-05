@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Hoop Dreams</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body>
+<div id="game-container"><canvas id="c"></canvas></div>
+
+<!-- MAIN MENU -->
+<div id="menu" class="overlay">
+  <div class="menu-card">
+    <h1>HOOP <span>DREAMS</span></h1>
+    <p class="tag">Up to 5v5 streetball &bull; first to 21 &bull; online</p>
+    <button id="btn-host" class="big-btn">HOST GAME</button>
+    <button id="btn-join" class="big-btn alt">JOIN GAME</button>
+    <button id="btn-practice" class="big-btn ghost">PRACTICE SOLO</button>
+    <p class="hint">Host on one phone, friends join with your 4-letter code.<br>No accounts. No downloads.</p>
+    <p class="hint">&#127918; Bluetooth controller supported &mdash; left stick moves (full tilt = sprint) &middot; X shoot &middot; A pass &middot; B dribble &middot; RB steal &middot; Y block. Touch controls auto-hide while you play on the controller.</p>
+  </div>
+</div>
+
+<!-- HOST LOBBY -->
+<div id="lobby" class="overlay hidden">
+  <div class="menu-card wide">
+    <h2>ROOM CODE</h2>
+    <div id="room-code">----</div>
+    <input id="host-name" maxlength="12" placeholder="YOUR NAME" autocomplete="off">
+    <p class="tag">Send this link to your friends:</p>
+    <div class="linkrow">
+      <input id="share-link" readonly value="">
+      <button id="btn-copy" class="small-btn">COPY</button>
+    </div>
+    <div class="rosters">
+      <div class="teamcol">
+        <div class="teamhead home">HOME <span id="count-home">0</span></div>
+        <ul id="roster-home" class="roster"></ul>
+      </div>
+      <div class="teamcol">
+        <div class="teamhead away">AWAY <span id="count-away">0</span></div>
+        <ul id="roster-away" class="roster"></ul>
+      </div>
+    </div>
+    <p id="lobby-status" class="status">Share the link — need at least 2 players</p>
+    <button id="btn-start" class="big-btn" disabled>START GAME</button>
+    <button id="btn-cancel-lobby" class="big-btn ghost">CANCEL</button>
+  </div>
+</div>
+
+<!-- GUEST LOBBY -->
+<div id="lobbyg" class="overlay hidden">
+  <div class="menu-card wide">
+    <h2>LOBBY</h2>
+    <p class="tag">You are on <b id="lobbyg-team">—</b></p>
+    <div class="rosters">
+      <div class="teamcol">
+        <div class="teamhead home">HOME <span id="count-home-g">0</span></div>
+        <ul id="roster-home-g" class="roster"></ul>
+      </div>
+      <div class="teamcol">
+        <div class="teamhead away">AWAY <span id="count-away-g">0</span></div>
+        <ul id="roster-away-g" class="roster"></ul>
+      </div>
+    </div>
+    <p id="lobbyg-status" class="status">Waiting for host to start&hellip;</p>
+    <button id="btn-cancel-lobbyg" class="big-btn ghost">LEAVE</button>
+  </div>
+</div>
+
+<!-- JOIN -->
+<div id="joinui" class="overlay hidden">
+  <div class="menu-card">
+    <h2>JOIN GAME</h2>
+    <input id="join-name" maxlength="12" placeholder="YOUR NAME" autocomplete="off">
+    <p class="tag">Enter your friend's 4-letter code</p>
+    <input id="join-code" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters">
+    <button id="btn-do-join" class="big-btn">JOIN</button>
+    <p id="join-status" class="status"></p>
+    <button id="btn-cancel-join" class="big-btn ghost">BACK</button>
+  </div>
+</div>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div id="scoreboard">
+    <div class="side" id="side-home"><div class="lbl">HOME</div><div id="score-home" class="pts">0</div></div>
+    <div class="mid"><div id="target">FIRST TO 21</div><div id="hud-code">----</div></div>
+    <div class="side" id="side-away"><div class="lbl">AWAY</div><div id="score-away" class="pts">0</div></div>
+  </div>
+  <div id="trick-wrap"><div id="trick-label">TRICK</div><div id="trick-bar"><div id="trick-fill"></div></div></div>
+  <div id="pad-pill" class="hidden">&#127918; CONTROLLER CONNECTED</div>
+  <div id="hud-btns">
+    <button id="btn-mute" class="icon-btn">&#9836;</button>
+    <button id="btn-quit" class="icon-btn">&#10005;</button>
+  </div>
+</div>
+
+<!-- SHOT METER -->
+<div id="meter" class="hidden">
+  <div id="meter-track"><div id="meter-green"></div><div id="meter-fill"></div><div id="meter-needle"></div></div>
+  <div id="meter-text">RELEASE IN THE GREEN</div>
+</div>
+
+<!-- CENTER BANNER -->
+<div id="banner" class="hidden"></div>
+
+<!-- TOUCH CONTROLS -->
+<div id="controls" class="hidden">
+  <div id="joy-zone"><div id="joy-base"><div id="joy-knob"></div></div></div>
+  <div id="btns">
+    <button id="b-shoot" class="ctl big">SHOOT</button>
+    <button id="b-pass" class="ctl small">PASS</button>
+    <button id="b-dribble" class="ctl small">DRIBBLE</button>
+    <button id="b-cut" class="ctl small">CUT</button>
+    <button id="b-steal" class="ctl small">STEAL</button>
+    <button id="b-block" class="ctl small">BLOCK</button>
+    <button id="b-switch" class="ctl small">SWITCH</button>
+    <button id="b-sprint" class="ctl small">SPRINT</button>
+  </div>
+  <button id="pad-icon" style="display:none">&#127918;</button>
+</div>
+
+<!-- GAME OVER -->
+<div id="gameover" class="overlay hidden">
+  <div class="menu-card">
+    <h2 id="go-title">HOME WINS</h2>
+    <p id="go-score" class="tag">21 : 14</p>
+    <button id="btn-rematch" class="big-btn hidden">REMATCH</button>
+    <p id="go-wait" class="status hidden">Waiting on host&hellip;</p>
+    <button id="btn-go-quit" class="big-btn ghost">QUIT</button>
+  </div>
+</div>
+
+<script type="module" src="game.js"></script>
+</body>
+</html>
