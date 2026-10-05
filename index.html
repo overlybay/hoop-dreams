@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <title>Hoop Dreams</title>
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 <script type="importmap">
 { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
 </script>
@@ -110,6 +110,14 @@
   </div>
 </div>
 
+<!-- READY OVERLAY (v7: no auto-start — angle the camera, then tap) -->
+<div id="ready-overlay" class="hidden">
+  <div class="ready-card">
+    <div class="ready-title" id="ready-title">DRAG TO ANGLE THE CAMERA</div>
+    <button id="btn-ready-go" class="big-btn">START GAME</button>
+  </div>
+</div>
+
 <!-- ROTATE OVERLAY -->
 <div id="rotate-overlay" class="hidden">
   <div class="rotate-card">
@@ -170,6 +178,6 @@
   </div>
 </div>
 
-<script type="module" src="game.js?v=7"></script>
+<script type="module" src="game.js?v=8"></script>
 </body>
 </html>

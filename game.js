@@ -84,6 +84,7 @@ const ui = {
   mlyToken: $('mly-token'), btnMlySave: $('btn-mly-save'), mlyStatus: $('mly-status'),
   photoCredit: $('photo-credit'),
   camHint: $('cam-hint'),
+  ready: $('ready-overlay'), readyGo: $('btn-ready-go'), readyTitle: $('ready-title'),
 };
 function show(el) { el.classList.remove('hidden'); }
 function hide(el) { el.classList.add('hidden'); }
@@ -620,7 +621,26 @@ function hostPickLocation(loc) {
   buildPlayers();
   const msg = { type: 'start', roster: rosterMsg(), loc };
   for (const k in G.conns) { try { G.conns[k].send(msg); } catch (_) {} }
-  startCountdown();
+  showReady(); // v7: host angles the camera, taps START — no auto-start
+}
+// v7: pre-game stage — court is live, player drags to angle the camera, then taps START
+function showReady() {
+  hide(ui.lobby); hide(ui.lobbyg); hide(ui.menu); hide(ui.locate); hide(ui.gameover);
+  show(ui.hud); hide(ui.controls);
+  ui.hudCode.textContent = (G.mode === 'practice' ? 'PRACTICE' : 'ROOM ' + G.code);
+  resetMatch();
+  G.paused = false;
+  G.phase = 'ready'; G.overShown = false;
+  if (G.mode === 'guest') {
+    ui.readyTitle.textContent = 'WAITING FOR HOST TO START…';
+    hide(ui.readyGo);
+  } else {
+    ui.readyTitle.textContent = 'DRAG TO ANGLE THE CAMERA';
+    show(ui.readyGo);
+  }
+  show(ui.ready);
+  if (G.mode === 'host' && !bcTimer) bcTimer = setInterval(hostBroadcast, 50);
+  checkOrientation();
 }
 
 function setupGuest(code, name) {
@@ -649,9 +669,7 @@ function setupGuest(code, name) {
       } else if (d.type === 'start') {
         guestBuildPlayers(d.roster);
         applyLocation(d.loc || FALLBACK_LOC);
-        hide(ui.lobbyg); hide(ui.menu);
-        show(ui.hud); show(ui.controls);
-        ui.hudCode.textContent = 'ROOM ' + code;
+        showReady(); // v7: guest waits on the ready screen for the host's tap
       } else if (d.type === 'state') {
         onHostState(d);
       } else if (d.type === 'reject') {
@@ -825,24 +843,42 @@ function initThree() {
   window.addEventListener('resize', layoutCamera);
 }
 function layoutCamera() {
-  const w = innerWidth, h = innerHeight, a = w / h;
-  renderer.setSize(w, h); camera.aspect = a; camera.updateProjectionMatrix();
-  // v7: player-adjustable angle (drag during countdown) + zoom persist here
-  const back = (a < 0.8 ? 1.55 : a < 1.2 ? 1.32 : 1.12) * (G.camDist || 1);
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+  updateCameraFollow(true);
+}
+// v7: camera gently follows the ball so the basket stays in view while shooting
+const camLook = { x: 0, y: 0.7, z: -1.8 };
+function updateCameraFollow(snap) {
+  const b = G.ball;
+  let tx = 0, ty = 0.7, tz = -1.8, pull = 1;
+  if (b && (b.state === 'fly' || b.state === 'pass')) {
+    tx = b.x * 0.45; ty = 1.8; tz = -1.8 + (b.z + 1.8) * 0.3; pull = 1.15;
+  } else if (b && b.state === 'held' && G.phase === 'play') {
+    const p = G.players[b.holder];
+    if (p) { tx = p.x * 0.3; tz = -1.8 + (p.z + 1.8) * 0.2; }
+  }
+  const k = snap ? 1 : 0.08;
+  camLook.x += (tx - camLook.x) * k;
+  camLook.y += (ty - camLook.y) * k;
+  camLook.z += (tz - camLook.z) * k;
+  const a = innerWidth / Math.max(1, innerHeight);
+  const back = (a < 0.8 ? 1.55 : a < 1.2 ? 1.32 : 1.12) * (G.camDist || 1) * pull;
   const ang = G.camAng || 0;
   camera.position.set(Math.sin(ang) * 12.6 * back, 10.4 * back, Math.cos(ang) * 12.6 * back);
-  camera.lookAt(0, 0.7, -1.8);
+  camera.lookAt(camLook.x, camLook.y, camLook.z);
 }
 // v7: drag the court view before tip-off to angle it how you want
 let orbT = null;
+const ORBIT_PHASES = { ready: 1, countdown: 1 };
 function wireCamOrbit() {
   const el = renderer.domElement;
   el.addEventListener('pointerdown', e => {
-    if (G.phase !== 'countdown') return;
+    if (!ORBIT_PHASES[G.phase]) return;
     orbT = { x: e.clientX, y: e.clientY };
   });
   el.addEventListener('pointermove', e => {
-    if (!orbT || G.phase !== 'countdown') return;
+    if (!orbT || !ORBIT_PHASES[G.phase]) return;
     const dx = e.clientX - orbT.x, dy = e.clientY - orbT.y;
     orbT = { x: e.clientX, y: e.clientY };
     G.camAng = (G.camAng || 0) + dx * 0.008;
@@ -1618,7 +1654,7 @@ function updateHUD() {
   } else if (me) { trick = me.trick; gb = me.gb; pow = me.shootPow; }
   ui.trickFill.style.width = clamp(trick, 0, 100) + '%';
   ui.trickFill.classList.toggle('full', gb);
-  if (ui.camHint) { G.phase === 'countdown' ? show(ui.camHint) : hide(ui.camHint); }
+  if (ui.camHint) { (G.phase === 'ready' || G.phase === 'countdown') ? show(ui.camHint) : hide(ui.camHint); }
   if (pow >= 0 && G.phase === 'play') {
     show(ui.meter);
     ui.meterFill.style.width = (pow * 100) + '%';
@@ -1655,7 +1691,7 @@ function checkOrientation() {
 window.addEventListener('resize', checkOrientation);
 window.addEventListener('orientationchange', () => setTimeout(checkOrientation, 300));
 function startCountdown() {
-  hide(ui.lobby); hide(ui.lobbyg); hide(ui.menu); hide(ui.gameover);
+  hide(ui.lobby); hide(ui.lobbyg); hide(ui.menu); hide(ui.gameover); hide(ui.ready);
   show(ui.hud); show(ui.controls);
   ui.hudCode.textContent = (G.mode === 'practice' ? 'PRACTICE' : 'ROOM ' + G.code);
   // v4: try to lock landscape (works on Android Chrome; iOS Safari ignores gracefully)
@@ -1677,7 +1713,7 @@ function startPractice() {
   G.players = [newPlayer('YOU', 0)];
   G.rpos = {};
   buildPlayers();
-  startCountdown();
+  showReady(); // v7: angle the camera first, then tap START
 }
 function wireMenu() {
   document.addEventListener('click', e => { if (e.target && e.target.tagName === 'BUTTON') e.target.blur(); });
@@ -1688,6 +1724,7 @@ function wireMenu() {
   $('btn-cancel-lobbyg').onclick = () => location.reload();
   $('btn-cancel-join').onclick = () => { hide(ui.joinui); show(ui.menu); };
   $('btn-start').onclick = () => { audio(); hostStart(); };
+  ui.readyGo.onclick = () => { audio(); startCountdown(); }; // v7: player taps when ready
   $('btn-do-join').onclick = () => {
     const c = ui.joinCode.value.trim().toUpperCase();
     if (!/^[A-Z0-9]{4}$/.test(c)) { ui.joinStatus.textContent = 'Enter the 4-letter code.'; return; }
@@ -1741,6 +1778,7 @@ function loop(t) {
     }
   } else if (G.mode === 'guest') guestTick(dt);
   updateVisuals(dt); updateHUD();
+  updateCameraFollow(false); // v7: keep the basket in frame while shooting
   if (G.gbFlash > 0) G.gbFlash = Math.max(0, G.gbFlash - dt * 1.4);
   renderer.render(scene, camera);
 }
