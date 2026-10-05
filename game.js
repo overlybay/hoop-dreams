@@ -146,6 +146,7 @@ function resetPositions(offenseTeam) {
   });
   const b = G.ball, bh = off[0];
   b.state = 'held'; b.holder = G.players.indexOf(bh); b.vx = b.vy = b.vz = 0;
+  if (b.mesh) b.mesh.visible = true; // v4 fix: ball was left invisible after boot
 }
 function resetMatch() {
   G.score = [0, 0]; G.tick = 0; G.over = false; G.winner = -1; G.freezeT = 0; G.offenseTeam = 0;
@@ -1243,6 +1244,7 @@ function gainPossession(i) {
   const p = G.players[i];
   p.hasBall = true;
   const b = G.ball; b.state = 'held'; b.holder = i; b.vx = b.vy = b.vz = 0;
+  if (b.mesh) b.mesh.visible = true; // v4 fix: keep the ball visible on possession changes
   G.offenseTeam = p.team;
 }
 function updateBall(dt) {
